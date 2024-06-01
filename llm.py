@@ -3,7 +3,7 @@ import torch
 import gc
 import boto3
 import json
-from .llm_utils import convert_format, convert_non_system_prompts, convert_to_multimodal_format
+from llm.llm_utils import convert_format, convert_non_system_prompts, convert_to_multimodal_format
 
 
 # class CoreLLMs:

@@ -1,5 +1,5 @@
-from .llm import BedRockLLMs
-from .llm_utils import flatten_conversation
+from llm.llm import BedRockLLMs
+from llm.llm_utils import flatten_conversation
 
 class LLMChat(BedRockLLMs):
     def __init__(self, model_name = "meta.llama3-8b-instruct-v1:0", 
