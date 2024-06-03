@@ -4,6 +4,11 @@ import ast
 
 def get_json_from_text_response(text_response):
     # Extract the JSON response from the text response
+    text_response = text_response.split("```")
+    if len(text_response) > 1:
+        text_response = text_response[1]
+    else:
+        text_response = text_response[0]
     json_response = re.search(r"\[.*\]", text_response, re.DOTALL)
     if json_response:
         json_data = json_response.group(0)
