@@ -2,40 +2,47 @@ import re
 import json
 import ast
 
+def check_json(json_data):
+    try:
+        return json.loads(json_data)
+    except Exception as e1:
+        try:
+            print(e1)
+            pattern = r'\\?:\s*false\\?'
+            json_data = re.sub(pattern, ': False', json_data)
+            
+            pattern = r'\\?:\s*true\\?'
+            json_data = re.sub(pattern, ': True', json_data)
+            
+            pattern = r'\\?:\s*null\\?'
+            json_data = re.sub(pattern, ': None', json_data)
+            
+            # json_data = json_data.replace(": false,", ": False,").replace(": true,", ": True,").replace(": null,", ": None,")
+            # json_data = json_data.replace(":false,", ": False,").replace(":true,", ": True,").replace(":null,", ": None,")
+            json_data = ast.literal_eval(json_data)
+            return json.dumps(json_data, indent=4)
+        except Exception as e2:
+            print(e2)
+            print("Error in converting JSON response")
+            return json_data
+
 def get_json_from_text_response(text_response):
     # Extract the JSON response from the text response
-    text_response = text_response.split("```")
-    if len(text_response) > 1:
-        text_response = text_response[1]
+    text_responses = text_response.split("```")
+    if len(text_responses) > 1:
+        text_response = text_responses[1]
     else:
-        text_response = text_response[0]
+        text_response = text_responses[0]
+
+        
     json_response = re.search(r"\[.*\]", text_response, re.DOTALL)
     if json_response:
         json_data = json_response.group(0)
-        try:
-            return json.loads(json_data)
-        except Exception as e1:
-            try:
-                print(e1)
-                pattern = r'\\?:\s*false\\?'
-                json_data = re.sub(pattern, ': False', json_data)
-                
-                pattern = r'\\?:\s*true\\?'
-                json_data = re.sub(pattern, ': True', json_data)
-                
-                pattern = r'\\?:\s*null\\?'
-                json_data = re.sub(pattern, ': None', json_data)
-                
-                # json_data = json_data.replace(": false,", ": False,").replace(": true,", ": True,").replace(": null,", ": None,")
-                # json_data = json_data.replace(":false,", ": False,").replace(":true,", ": True,").replace(":null,", ": None,")
-                json_data = ast.literal_eval(json_data)
-                return json.dumps(json_data, indent=4)
-            except Exception as e2:
-                print(e2)
-                print("Error in converting JSON response")
-                return text_response
-        
-        # return json.dumps(json_data)
+        return check_json(json_data)
+    json_response = re.search(r"\{.*\}", text_response, re.DOTALL)
+    if json_response:
+        json_data = json_response.group(0)
+        return [check_json(json_data)]
     print("No JSON response found in text response")
     return text_response
 
