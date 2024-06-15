@@ -3,8 +3,16 @@ import torch
 import gc
 import boto3
 import json
-from llm.llm_utils import convert_format, convert_non_system_prompts, convert_to_multimodal_format
+from llm.llm_utils import *
 
+import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
+
+from dotenv import load_dotenv
+load_dotenv()
+import os
+
+genai.configure(api_key=os.getenv('GENAI_API_KEY'))
 
 class CoreLLMs:
     def __init__(self,
@@ -25,7 +33,7 @@ class CoreLLMs:
 
                 self.generation_args = {
                     "max_new_tokens": 4096,
-                    "temperature": 0.2,
+                    "temperature": 0.3,
                     "top_p": 0.9,
                 }
         else:
@@ -81,6 +89,30 @@ class CoreLLMs:
         with torch.no_grad():
             return self.pipe(message, **self.generation_args)[0]['generated_text'][-1]['content']
         
+        
+class Gemini:
+    def __init__(self, model_name = 'gemini-1.5-flash'):
+        self.model= genai.GenerativeModel(model_name)
+        
+        self.safety_settings = {
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+        
+    def __call__(self, message):
+        if isinstance(message, list):
+            message = convert_to_gemini_format(message)
+        response = self.model.generate_content(message, safety_settings=self.safety_settings,
+            generation_config=genai.types.GenerationConfig(
+            # Only one candidate for now.
+                                candidate_count=1,
+                            
+                                max_output_tokens=20000,
+                                temperature=0.3)
+            )   
+        return response.candidates[0].content.parts[0].text
         
 class BedRockLLMs:
     def __init__(self,
