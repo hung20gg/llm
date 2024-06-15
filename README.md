@@ -1,5 +1,5 @@
 # Library for using LLM easily
-Support model directly from Hugging Face via `CoreLLMs` and AWS Bedrock via `BedrockLLMs`
+Support model directly from Hugging Face via `CoreLLMs` (with quantization) and AWS Bedrock via `BedrockLLMs`
 
 Make sure to install requirements library: `boto3`, `transformers`
 
