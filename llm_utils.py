@@ -92,6 +92,18 @@ def convert_non_system_prompts(messages):
         return new_messages
     return messages
 
+def convert_to_gemini_format(messages, has_system=True):
+    new_messages = []
+    if not has_system:
+        messages = convert_non_system_prompts(messages)
+    for i, item in enumerate(messages):
+        role = item["role"]
+        content = item["content"]
+        if role == "assistant":
+            role = "model"
+        new_messages.append({"role": role, "parts": [content]})
+    return new_messages
+
 def flatten_conversation(messages):
     conversation = []
 
