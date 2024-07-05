@@ -15,7 +15,7 @@ llm = CoreLLMs() # if not passing model name, it will automatically use Llama 3
 message = [
   {
     "role":"user",
-    "message":"Hi there!"
+    "content":"Hi there!"
   }
 ]
 
