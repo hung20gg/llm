@@ -10,7 +10,7 @@ Create a `.env` file and pass every API key in it. Check each class for specific
 ## Usecase
 Just call the model and it will work 
 ```
-llm = CoreLLMs() # if not passing model name, it will automatically use Llama 3
+llm = CoreLLMs(quantization = "int4") # if not passing model name, it will automatically use Llama 3
 
 message = [
   {
