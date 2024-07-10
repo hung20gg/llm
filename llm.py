@@ -8,12 +8,29 @@ from llm.llm_utils import *
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
+
+from openai import OpenAI
+
 from dotenv import load_dotenv
 load_dotenv()
+
 import os
 
 genai.configure(api_key=os.getenv('GENAI_API_KEY'))
 
+
+class ChatGPT:
+    def __init__(self, model_name = 'gpt-3.5-turbo', engine='davinci-codex'):
+        self.model_name = model_name
+        self.engine = engine
+        self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+
+    def __call__(self, messages):
+        completion = self.client.chat.completions.create(
+            model = self.model_name,
+            messages = messages
+        )
+        return completion.choices[0].message.content
 class CoreLLMs:
     def __init__(self,
                 model_name = "meta-llama/Meta-Llama-3-8B-Instruct", 
@@ -35,6 +52,7 @@ class CoreLLMs:
                     "max_new_tokens": 4096,
                     "temperature": 0.3,
                     "top_p": 0.9,
+                    "do_sample": True,
                 }
         else:
             self.generation_args = generation_args
@@ -109,7 +127,7 @@ class Gemini:
             # Only one candidate for now.
                                 candidate_count=1,
                             
-                                max_output_tokens=20000,
+                                max_output_tokens=40000,
                                 temperature=0.3)
             )   
         return response.candidates[0].content.parts[0].text
