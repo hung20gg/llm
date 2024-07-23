@@ -31,6 +31,43 @@ class ChatGPT:
             messages = messages
         )
         return completion.choices[0].message.content
+    
+    def batch_call(self, list_messages, prefix = ''):
+        
+        list_messages = list_of_messages_to_batch_chatgpt(list_messages, model_type=self.model_name, prefix=prefix)
+
+        if not os.path.exists('process'):
+            os.mkdir('process')
+        
+        if not os.path.exists('batch'):
+            os.mkdir('batch')
+        
+        for i, batch in enumerate(list_messages):
+            with open(f'process/process-{prefix}-{i}.jsonl', 'w', encoding='utf-8') as file:
+                for message in batch:
+                    json_line = json.dumps(message)
+                    file.write(json_line + '\n')
+
+        for i, batch in enumerate(list_messages):
+            batch_input_file = self.client.files.create(file=open(f'process/process-{prefix}-{i}.jsonl', 'rb'), purpose='batch')
+            
+            batch_input_file_id = batch_input_file.id
+            batch_id = self.client.batches.create(
+                input_file_id=batch_input_file_id,
+                endpoint="/v1/chat/completions",
+                completion_window="24h",
+                metadata={
+                "description": f"batch_{i}"
+                }
+            )
+            print(f"Batch {i} created")
+            with open(f'batch/batch-{prefix}-{i}.json', 'w', encoding='utf-8') as file:
+                file.write(json.dumps(batch_input_file_id, indent=4))
+        
+    def retrieve(self, batch_id):
+        return self.client.batches.retrieve(batch_id)
+    
+
 class CoreLLMs:
     def __init__(self,
                 model_name = "meta-llama/Meta-Llama-3-8B-Instruct", 

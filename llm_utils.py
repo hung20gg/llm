@@ -2,6 +2,26 @@ import re
 import json
 import ast
 
+def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefix = '', model_type = 'gpt-4o-mini'):
+    list_of_batches = []
+    for i in range(0, len(messages), example_per_batch):
+        batch = messages[i:i+example_per_batch]
+        batch_json = []
+        for j, message in enumerate(batch):
+            json_obj = {
+                "custom_id": f"request_{prefix}_{i*example_per_batch+j}",
+                "method": "POST",
+                "url": '/v1/chat/completions',
+                "body": {
+                    "model": model_type,
+                    "messages": message
+                },
+                "max_tokens": 200000,
+            }
+            batch_json.append(json_obj)
+        list_of_batches.append(batch_json)
+    return list_of_batches
+
 def check_json(json_data):
     try:
         return json.loads(json_data)
