@@ -14,9 +14,9 @@ def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefi
                 "url": '/v1/chat/completions',
                 "body": {
                     "model": model_type,
-                    "messages": message
+                    "messages": message,
                 },
-                "max_tokens": 200000,
+                
             }
             batch_json.append(json_obj)
         list_of_batches.append(batch_json)

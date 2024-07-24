@@ -52,7 +52,7 @@ class ChatGPT:
             batch_input_file = self.client.files.create(file=open(f'process/process-{prefix}-{i}.jsonl', 'rb'), purpose='batch')
             
             batch_input_file_id = batch_input_file.id
-            batch_id = self.client.batches.create(
+            batch_job = self.client.batches.create(
                 input_file_id=batch_input_file_id,
                 endpoint="/v1/chat/completions",
                 completion_window="24h",
@@ -62,7 +62,7 @@ class ChatGPT:
             )
             print(f"Batch {i} created")
             with open(f'batch/batch-{prefix}-{i}.json', 'w', encoding='utf-8') as file:
-                file.write(json.dumps(batch_input_file_id, indent=4))
+                file.write(json.dumps(batch_job.id, indent=4))
         
     def retrieve(self, batch_id):
         return self.client.batches.retrieve(batch_id)
@@ -73,10 +73,14 @@ class CoreLLMs:
                 model_name = "meta-llama/Meta-Llama-3-8B-Instruct", 
                 quantization='auto',
                 
-                generation_args = None
+                generation_args = None,
+                device = None
                 ) -> None:
         
-        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        if device is not None:
+            self.device = device
+        else:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model_name = model_name
         self.quantization = quantization
         self.is_agent_initialized = True
