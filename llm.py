@@ -128,6 +128,8 @@ class CoreLLMs:
         self.pipe = pipeline("text-generation",
             model = self.model,
             tokenizer = self.tokenizer,
+            trust_remote_code=True,
+            device_map=self.device
         )
         
     def _delete_agent(self):
@@ -139,14 +141,31 @@ class CoreLLMs:
             self.is_agent_initialized = False
             print("Agent deleted")
 
-    def __call__(self, message):
+    def __call__(self, messages):
+        batch_process = False
+        if isinstance(messages[0], list):
+            print("Batch processing")
+            batch_process = True
         if not self.is_agent_initialized:
             self._initialize_agent()
             self.is_agent_initialized = True
         if 'llama' not in self.model_name.lower():
-            message = convert_non_system_prompts(message)
+            if batch_process:
+                non_sys_prompt_messages = []
+                for batch in messages:
+                    non_sys_prompt_messages.append(convert_non_system_prompts(batch))
+                messages = non_sys_prompt_messages
+            else:
+                messages = convert_non_system_prompts(messages)
         with torch.no_grad():
-            return self.pipe(message, **self.generation_args)[0]['generated_text'][-1]['content']
+            if not batch_process:
+                return self.pipe(messages, **self.generation_args)[0]['generated_text'][-1]['content']
+            
+            results = self.pipe(messages, **self.generation_args)
+            return_message = []
+            for result in results:
+                return_message.append(result[0]['generated_text'][-1]['content'])
+            return return_message
         
         
 class Gemini:
