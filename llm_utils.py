@@ -2,7 +2,7 @@ import re
 import json
 import ast
 
-def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefix = '', model_type = 'gpt-4o-mini'):
+def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefix = '', model_type = 'gpt-4o-mini', max_tokens = 40000):
     list_of_batches = []
     for i in range(0, len(messages), example_per_batch):
         batch = messages[i:i+example_per_batch]
@@ -15,6 +15,7 @@ def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefi
                 "body": {
                     "model": model_type,
                     "messages": message,
+                    "max_tokens":max_tokens
                 },
                 
             }

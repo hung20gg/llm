@@ -20,10 +20,12 @@ genai.configure(api_key=os.getenv('GENAI_API_KEY'))
 
 
 class ChatGPT:
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex'):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
         self.model_name = model_name
         self.engine = engine
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.model_token = 16384 if model_name == 'gpt-4o-mini' else 40000
+        self.max_tokens = min(self.model_token, max_tokens)
 
     def __call__(self, messages):
         completion = self.client.chat.completions.create(
@@ -34,7 +36,7 @@ class ChatGPT:
     
     def batch_call(self, list_messages, prefix = ''):
         
-        list_messages = list_of_messages_to_batch_chatgpt(list_messages, model_type=self.model_name, prefix=prefix)
+        list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=100, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
 
         if not os.path.exists('process'):
             os.mkdir('process')
