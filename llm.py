@@ -34,9 +34,9 @@ class ChatGPT:
         )
         return completion.choices[0].message.content
     
-    def batch_call(self, list_messages, prefix = ''):
+    def batch_call(self, list_messages, prefix = '', example_per_batch=100):
         
-        list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=100, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
+        list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=example_per_batch, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
 
         if not os.path.exists('process'):
             os.mkdir('process')
