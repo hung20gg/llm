@@ -4,6 +4,7 @@ import gc
 import boto3
 import json
 from llm.llm_utils import *
+import time
 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
@@ -34,7 +35,7 @@ class ChatGPT:
         )
         return completion.choices[0].message.content
     
-    def batch_call(self, list_messages, prefix = '', example_per_batch=100):
+    def batch_call(self, list_messages, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
         
         list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=example_per_batch, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
 
@@ -51,6 +52,9 @@ class ChatGPT:
                     file.write(json_line + '\n')
 
         for i, batch in enumerate(list_messages):
+            if i % sleep_step == 0 and i != 0 and sleep_time != 0:
+                print(f"Sleeping for {sleep_time} seconds")
+                time.sleep(sleep_time)
             batch_input_file = self.client.files.create(file=open(f'process/process-{prefix}-{i}.jsonl', 'rb'), purpose='batch')
             
             batch_input_file_id = batch_input_file.id
