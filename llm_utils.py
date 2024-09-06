@@ -67,6 +67,23 @@ def get_json_from_text_response(text_response):
     print("No JSON response found in text response")
     return text_response
 
+def get_code_from_text_response(text_response):
+    # Extract the code response from the text response
+    code_response = re.search(r"```.*```", text_response, re.DOTALL)
+    if code_response:
+        text_chunk = text_response.split("```")
+        code_chunk = text_chunk[1::2]
+        return_code = []
+        for code in code_chunk:
+            language = code.split("\n")[0]
+            content = "\n".join(code.split("\n")[1:])
+            return_code.append({'language': language, 'code': content})
+        return return_code
+    
+    else:
+        print("No code response found in text response")
+        return [{'language': 'text', 'code': text_response}]
+
 def convert_format(data, has_system=True):
     prompt = ""
     sys_non_llama = ''
@@ -145,5 +162,21 @@ if __name__ == "__main__":
     {"role": "assistant", "content": "You're welcome! Anything else you need?"}
 ]
 
-    plain_text_conversation = flatten_conversation(messages)
-    print(plain_text_conversation)
+    # plain_text_conversation = flatten_conversation(messages)
+    # print(plain_text_conversation)
+    
+    code_sample = """
+```python
+import pandas as pd
+df = pd.read_csv('data.csv')
+print(df.head())
+```
+
+Here is another code snippet:
+```javascript
+const x = 10;
+console.log(x);
+```
+    """
+    
+    print(get_code_from_text_response(code_sample))

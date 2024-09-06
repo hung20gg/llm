@@ -8,7 +8,6 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
-print(os.getenv('OPENAI_API_KEY'))
 
 class ChatGPT:
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
