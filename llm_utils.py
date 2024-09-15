@@ -55,15 +55,15 @@ def get_json_from_text_response(text_response):
     else:
         text_response = text_responses[0]
 
-        
+    json_response = re.search(r"\{.*\}", text_response, re.DOTALL)
+    if json_response:
+        json_data = json_response.group(0)
+        return [check_json(json_data)]   
     json_response = re.search(r"\[.*\]", text_response, re.DOTALL)
     if json_response:
         json_data = json_response.group(0)
         return check_json(json_data)
-    json_response = re.search(r"\{.*\}", text_response, re.DOTALL)
-    if json_response:
-        json_data = json_response.group(0)
-        return [check_json(json_data)]
+
     print("No JSON response found in text response")
     return text_response
 

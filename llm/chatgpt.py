@@ -17,12 +17,36 @@ class ChatGPT:
         self.model_token = 16384 if model_name == 'gpt-4o-mini' else 40000
         self.max_tokens = min(self.model_token, max_tokens)
 
-    def __call__(self, messages):
-        completion = self.client.chat.completions.create(
-            model = self.model_name,
-            messages = messages
-        )
-        return completion.choices[0].message.content
+    def __call__(self, messages, response_format=None):
+        try:
+            if response_format is not None: 
+                completion = self.client.beta.chat.completions.parse(
+                    model = self.model_name,
+                    messages = messages,
+                    response_format = response_format,
+                )
+            else:
+                completion = self.client.chat.completions.create(
+                    model = self.model_name,
+                    messages = messages,
+                )    
+            
+            response = completion.choices[0].message
+            
+            print(completion.usage)
+            
+            # Return the parsed response if it exists
+            if response_format is not None:
+                if response.parsed:
+                    return response.parsed
+                elif response.refusal:
+                    return response.refusal
+            return response.content
+        
+        except Exception as e:
+            # Handle edge cases
+            print(e)
+            pass
     
     def batch_call(self, list_messages, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
         
