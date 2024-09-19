@@ -47,7 +47,7 @@ def check_json(json_data):
             print("Error in converting JSON response")
             return json_data
 
-def get_json_from_text_response(text_response):
+def get_json_from_text_response(text_response, new_method=False):
     # Extract the JSON response from the text response
     text_responses = text_response.split("```")
     if len(text_responses) > 1:
@@ -55,14 +55,20 @@ def get_json_from_text_response(text_response):
     else:
         text_response = text_responses[0]
 
-    json_response = re.search(r"\{.*\}", text_response, re.DOTALL)
-    if json_response:
-        json_data = json_response.group(0)
-        return [check_json(json_data)]   
-    json_response = re.search(r"\[.*\]", text_response, re.DOTALL)
-    if json_response:
-        json_data = json_response.group(0)
-        return check_json(json_data)
+    if new_method:
+        language = text_response.split("\n")[0]
+        content = "\n".join(text_response.split("\n")[1:])
+        return check_json(content)
+        
+    else:
+        json_response = re.search(r"\{.*\}", text_response, re.DOTALL)
+        if json_response:
+            json_data = json_response.group(0)
+            return [check_json(json_data)]   
+        json_response = re.search(r"\[.*\]", text_response, re.DOTALL)
+        if json_response:
+            json_data = json_response.group(0)
+            return check_json(json_data)
 
     print("No JSON response found in text response")
     return text_response
@@ -179,4 +185,13 @@ console.log(x);
 ```
     """
     
+    json_sample = """
+    ```json
+    {
+        "next_step": ["SELECT * FROM table_name WHERE condition == \\"text\\";"]
+    }
+    ```
+    """
+    
+    print(get_json_from_text_response(json_sample))
     print(get_code_from_text_response(code_sample))
