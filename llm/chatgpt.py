@@ -14,10 +14,10 @@ class OpenAIWrapper:
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
-        self.client = OpenAI(api_key=api_key, api_base=host)
+        self.client = OpenAI(api_key=api_key, base_url=host)
     
     def __call__(self, messages):
-        completion = self.client.completions.create(
+        completion = self.client.chat.completions.create(
             model = self.model_name,
             messages = messages,
         )
@@ -32,7 +32,7 @@ class ChatGPT:
         self.model_token = 16384 if model_name == 'gpt-4o-mini' else 40000
         self.max_tokens = min(self.model_token, max_tokens)
 
-    def __call__(self, messages, response_format=None):
+    def __call__(self, messages, temperature = 0.3, response_format=None):
         try:
             if response_format is not None: 
                 completion = self.client.beta.chat.completions.parse(
@@ -44,6 +44,7 @@ class ChatGPT:
                 completion = self.client.chat.completions.create(
                     model = self.model_name,
                     messages = messages,
+                    temperature=temperature,
                 )    
             
             response = completion.choices[0].message
