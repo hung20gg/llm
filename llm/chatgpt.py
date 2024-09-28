@@ -9,11 +9,26 @@ load_dotenv()
 
 import os
 
+class OpenAIWrapper:
+    def __init__(self, host, model_name, api_key):
+        self.host = host
+        self.model_name = model_name
+        self.api_key = api_key
+        self.client = OpenAI(api_key=api_key, api_base=host)
+    
+    def __call__(self, messages):
+        completion = self.client.completions.create(
+            model = self.model_name,
+            messages = messages,
+        )
+        if hasattr(completion, 'usage'):
+            print(completion.usage)
+        return completion.choices[0].message.content
 class ChatGPT:
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
         self.model_name = model_name
         self.engine = engine
-        self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'), )
         self.model_token = 16384 if model_name == 'gpt-4o-mini' else 40000
         self.max_tokens = min(self.model_token, max_tokens)
 
