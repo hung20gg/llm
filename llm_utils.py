@@ -145,7 +145,9 @@ def convert_to_gemini_format(messages, has_system=True):
         content = item["content"]
         if role == "assistant":
             role = "model"
-        new_messages.append({"role": role, "parts": [content]})
+        if not isinstance(content, list):
+            content = [content]
+        new_messages.append({"role": role, "parts": content})
     return new_messages
 
 def flatten_conversation(messages):

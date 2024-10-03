@@ -24,7 +24,7 @@ class Gemini:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
         
-    def __call__(self, message, temperature=0.3):
+    def __call__(self, message, temperature=0.3, count_tokens=False):
         
         system_instruction = None
         if message[0]['role'] == 'system':
@@ -47,5 +47,14 @@ class Gemini:
                                 max_output_tokens=8192,
                                 temperature=temperature)
             )   
-        return response.candidates[0].content.parts[0].text
+        print(response.usage_metadata)
+        if count_tokens:
+            return {
+                "response": response.candidates[0].content.parts[0].text,
+                "input_token": response.usage_metadata.prompt_token_count,
+                "output_token": response.usage_metadata.candidates_token_count,
+                "total_token": response.usage_metadata.total_token_count
+            }
+        else:
+            return response.candidates[0].content.parts[0].text
  

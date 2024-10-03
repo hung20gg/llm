@@ -24,6 +24,16 @@ class OpenAIWrapper:
         if hasattr(completion, 'usage'):
             print(completion.usage)
         return completion.choices[0].message.content
+    
+def output_with_usage(response, usage, count_tokens=False):
+    if count_tokens:
+        return {
+            "response": response,
+            "input_token": usage.prompt_tokens,
+            "output_token": usage.completion_tokens,
+            "total_token": usage.total_tokens
+        }
+    return response
 class ChatGPT:
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
         self.model_name = model_name
@@ -32,7 +42,7 @@ class ChatGPT:
         self.model_token = 16384 if model_name == 'gpt-4o-mini' else 40000
         self.max_tokens = min(self.model_token, max_tokens)
 
-    def __call__(self, messages, temperature = 0.3, response_format=None):
+    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
         try:
             if response_format is not None: 
                 completion = self.client.beta.chat.completions.parse(
@@ -50,19 +60,19 @@ class ChatGPT:
             response = completion.choices[0].message
             
             print(completion.usage)
-            
+
             # Return the parsed response if it exists
             if response_format is not None:
                 if response.parsed:
-                    return response.parsed
+                    return output_with_usage(response.parsed, completion.usage, count_tokens)
                 elif response.refusal:
-                    return response.refusal
-            return response.content
+                    return output_with_usage(response.refusal, completion.usage, count_tokens)
+            return output_with_usage(response.content, completion.usage, count_tokens)
         
         except Exception as e:
             # Handle edge cases
             print(e)
-            pass
+            return None
     
     def batch_call(self, list_messages, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
         

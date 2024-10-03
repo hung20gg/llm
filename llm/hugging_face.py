@@ -86,7 +86,7 @@ class CoreLLMs:
             self.is_agent_initialized = False
             print("Agent deleted")
 
-    def __call__(self, messages):
+    def __call__(self, messages, **kwargs):
         batch_process = False
         if isinstance(messages[0], list):
             print("Batch processing")
