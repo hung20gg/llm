@@ -3,7 +3,8 @@ import torch
 import gc
 
 import json
-from llm.llm_utils import *
+from ..llm_utils import *
+from .abstract import LLM
 import time
 
 
@@ -13,7 +14,7 @@ load_dotenv()
 import os
 
 
-class CoreLLMs:
+class CoreLLMs(LLM):
     def __init__(self,
                 model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct", 
                 quantization='auto',

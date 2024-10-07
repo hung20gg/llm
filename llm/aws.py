@@ -1,6 +1,7 @@
 import boto3
 import json
 from ..llm_utils import *
+from .abstract import LLM
 import time
 
 from dotenv import load_dotenv
@@ -9,7 +10,7 @@ load_dotenv()
 import os
 
         
-class BedRockLLMs:
+class BedRockLLMs(LLM):
     def __init__(self,
                 model_name = "meta.llama3-8b-instruct-v1:0", 
                 access_key = None,

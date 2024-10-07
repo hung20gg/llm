@@ -1,5 +1,6 @@
 import json
 from ..llm_utils import *
+from .abstract import LLM
 import time
 
 from openai import OpenAI
@@ -9,7 +10,7 @@ load_dotenv()
 
 import os
 
-class OpenAIWrapper:
+class OpenAIWrapper(LLM):
     def __init__(self, host, model_name, api_key):
         self.host = host
         self.model_name = model_name
@@ -34,7 +35,7 @@ def output_with_usage(response, usage, count_tokens=False):
             "total_token": usage.total_tokens
         }
     return response
-class ChatGPT:
+class ChatGPT(LLM):
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
         self.model_name = model_name
         self.engine = engine
