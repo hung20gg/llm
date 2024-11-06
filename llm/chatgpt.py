@@ -12,6 +12,7 @@ import os
 
 class OpenAIWrapper(LLM):
     def __init__(self, host, model_name, api_key):
+        super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
@@ -24,6 +25,10 @@ class OpenAIWrapper(LLM):
         )
         if hasattr(completion, 'usage'):
             print(completion.usage)
+            
+            self.input_token += completion.usage.prompt_tokens
+            self.output_token += completion.usage.completion_tokens
+            
         return completion.choices[0].message.content
     
 def output_with_usage(response, usage, count_tokens=False):
@@ -37,6 +42,7 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 class ChatGPT(LLM):
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
+        super().__init__()
         self.model_name = model_name
         self.engine = engine
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'), )
@@ -61,6 +67,8 @@ class ChatGPT(LLM):
             response = completion.choices[0].message
             
             print(completion.usage)
+            self.input_token += completion.usage.prompt_tokens
+            self.output_token += completion.usage.completion_tokens
 
             # Return the parsed response if it exists
             if response_format is not None:

@@ -1,7 +1,7 @@
 # Library for using LLM easily
 Support model directly from Hugging Face via `CoreLLMs` (with quantization), AWS Bedrock via `BedrockLLMs` and gemini via `Gemini`
 
-Make sure to install requirements library: `boto3`, `transformers`
+Make sure to install requirements library: `boto3`, `transformers`, `openai` and `google-generativeai`
 
 ## Setup:
 

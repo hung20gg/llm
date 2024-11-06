@@ -16,6 +16,7 @@ genai.configure(api_key=os.getenv('GENAI_API_KEY'))
         
 class Gemini(LLM):
     def __init__(self, model_name = 'gemini-1.5-flash-002'):
+        super().__init__()
         self.model_name = model_name
         
         self.safety_settings = {
@@ -49,6 +50,10 @@ class Gemini(LLM):
                                 temperature=temperature)
             )   
         print(response.usage_metadata)
+        
+        self.input_token += response.usage_metadata.prompt_token_count
+        self.output_token += response.usage_metadata.candidates_token_count
+        
         if count_tokens:
             return {
                 "response": response.candidates[0].content.parts[0].text,

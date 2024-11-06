@@ -22,7 +22,7 @@ class CoreLLMs(LLM):
                 generation_args = None,
                 device = None
                 ) -> None:
-        
+        super().__init__()
         if device is not None:
             self.device = device
         else:
