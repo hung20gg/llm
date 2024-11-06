@@ -7,3 +7,7 @@ class LLM(BaseModel):
     
     def __call__(self, message, **kwargs) -> str:
         raise NotImplementedError()
+    
+    def reset_token(self):
+        self.input_token = 0
+        self.output_token = 0
