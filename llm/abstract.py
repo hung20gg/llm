@@ -1,6 +1,4 @@
-from pydantic import BaseModel
-
-class LLM(BaseModel):
+class LLM:
     
     input_token: int = 0
     output_token: int = 0
