@@ -2,6 +2,7 @@ import json
 from ..llm_utils import *
 from .abstract import LLM
 import time
+import logging
 
 from openai import OpenAI
 
@@ -10,27 +11,11 @@ load_dotenv()
 
 import os
 
-class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key):
-        super().__init__()
-        self.host = host
-        self.model_name = model_name
-        self.api_key = api_key
-        self.client = OpenAI(api_key=api_key, base_url=host)
-    
-    def __call__(self, messages):
-        completion = self.client.chat.completions.create(
-            model = self.model_name,
-            messages = messages,
-        )
-        if hasattr(completion, 'usage'):
-            print(completion.usage)
-            
-            self.input_token += completion.usage.prompt_tokens
-            self.output_token += completion.usage.completion_tokens
-            
-        return completion.choices[0].message.content
-    
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+
 def output_with_usage(response, usage, count_tokens=False):
     if count_tokens:
         return {
@@ -40,6 +25,34 @@ def output_with_usage(response, usage, count_tokens=False):
             "total_token": usage.total_tokens
         }
     return response
+
+class OpenAIWrapper(LLM):
+    def __init__(self, host, model_name, api_key):
+        super().__init__()
+        self.host = host
+        self.model_name = model_name
+        self.api_key = api_key
+        self.client = OpenAI(api_key=api_key, base_url=host)
+    
+    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
+        
+        start = time.time()
+        completion = self.client.chat.completions.create(
+            model = self.model_name,
+            messages = messages,
+            temperature=temperature,
+        )
+        if hasattr(completion, 'usage'):
+            print(completion.usage)
+            
+            self.input_token += completion.usage.prompt_tokens
+            self.output_token += completion.usage.completion_tokens
+        end = time.time()
+        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+
+        
+        return output_with_usage(completion.choices[0].message, completion.usage, count_tokens)
+    
 class ChatGPT(LLM):
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
         super().__init__()
@@ -51,6 +64,7 @@ class ChatGPT(LLM):
 
     def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
         try:
+            start = time.time()
             if response_format is not None: 
                 completion = self.client.beta.chat.completions.parse(
                     model = self.model_name,
@@ -69,7 +83,10 @@ class ChatGPT(LLM):
             print(completion.usage)
             self.input_token += completion.usage.prompt_tokens
             self.output_token += completion.usage.completion_tokens
+            end = time.time()
+            logging.info(f"Completion time of {self.model_name}: {end - start}s")
 
+            
             # Return the parsed response if it exists
             if response_format is not None:
                 if response.parsed:

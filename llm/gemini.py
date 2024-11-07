@@ -1,6 +1,8 @@
 import json
-from ..llm_utils import *
+import logging
 import time
+
+from ..llm_utils import *
 from .abstract import LLM
 
 import google.generativeai as genai
@@ -8,12 +10,15 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 from dotenv import load_dotenv
 load_dotenv()
-
 import os
 
 genai.configure(api_key=os.getenv('GENAI_API_KEY'))
 
-        
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)  
+      
 class Gemini(LLM):
     def __init__(self, model_name = 'gemini-1.5-flash-002'):
         super().__init__()
@@ -27,6 +32,8 @@ class Gemini(LLM):
         }
         
     def __call__(self, message, temperature=0.3, count_tokens=False):
+        
+        start = time.time()
         
         system_instruction = None
         if message[0]['role'] == 'system':
@@ -53,6 +60,9 @@ class Gemini(LLM):
         
         self.input_token += response.usage_metadata.prompt_token_count
         self.output_token += response.usage_metadata.candidates_token_count
+        
+        end = time.time()
+        logging.info(f"Completion time of {self.model_name}: {end - start}s")
         
         if count_tokens:
             return {

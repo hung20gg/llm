@@ -6,7 +6,12 @@ import json
 from ..llm_utils import *
 from .abstract import LLM
 import time
+import logging
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -88,6 +93,9 @@ class CoreLLMs(LLM):
             print("Agent deleted")
 
     def __call__(self, messages, **kwargs):
+        
+        start = time.time()
+        
         batch_process = False
         if isinstance(messages[0], list):
             print("Batch processing")
@@ -105,11 +113,15 @@ class CoreLLMs(LLM):
                 messages = convert_non_system_prompts(messages)
         with torch.no_grad():
             if not batch_process:
-                return self.pipe(messages, **self.generation_args)[0]['generated_text'][-1]['content']
+                answer = self.pipe(messages, **self.generation_args)[0]['generated_text'][-1]['content']
             
-            results = self.pipe(messages, **self.generation_args)
-            return_message = []
-            for result in results:
-                return_message.append(result[0]['generated_text'][-1]['content'])
-            return return_message
+            else:
+                results = self.pipe(messages, **self.generation_args)
+                answer = []
+                for result in results:
+                    answer.append(result[0]['generated_text'][-1]['content'])
+                
+        end = time.time()
+        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        return answer
         
