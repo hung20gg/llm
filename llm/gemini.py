@@ -20,7 +20,7 @@ logging.basicConfig(
 )  
       
 class Gemini(LLM):
-    def __init__(self, model_name = 'gemini-1.5-flash-002'):
+    def __init__(self, model_name = 'gemini-1.5-flash-002', **kwargs):
         super().__init__()
         self.model_name = model_name
         

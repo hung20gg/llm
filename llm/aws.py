@@ -16,7 +16,8 @@ class BedRockLLMs(LLM):
                 access_key = None,
                 secret_key = None,
                 secret_token = None,    
-                region_name = "us-west-2"
+                region_name = "us-west-2",
+                **kwargs
                  ) -> None:
         super().__init__()
         self.client = boto3.client(service_name='bedrock-runtime', region_name=region_name, aws_access_key_id=access_key, aws_secret_access_key=secret_key, aws_session_token=secret_token)

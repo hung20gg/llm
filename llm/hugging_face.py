@@ -23,9 +23,9 @@ class CoreLLMs(LLM):
     def __init__(self,
                 model_name = "meta-llama/Meta-Llama-3.1-8B-Instruct", 
                 quantization='auto',
-                
                 generation_args = None,
-                device = None
+                device = None,
+                **kwargs
                 ) -> None:
         super().__init__()
         if device is not None:

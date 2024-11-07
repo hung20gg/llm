@@ -27,7 +27,7 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key):
+    def __init__(self, host, model_name, api_key, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
@@ -54,7 +54,7 @@ class OpenAIWrapper(LLM):
         return output_with_usage(completion.choices[0].message, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.engine = engine
