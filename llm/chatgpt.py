@@ -51,7 +51,7 @@ class OpenAIWrapper(LLM):
         logging.info(f"Completion time of {self.model_name}: {end - start}s")
 
         
-        return output_with_usage(completion.choices[0].message, completion.usage, count_tokens)
+        return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000, **kwargs):
