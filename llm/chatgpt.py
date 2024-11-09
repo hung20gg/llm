@@ -27,12 +27,13 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key, **kwargs):
+    def __init__(self, host, model_name, api_key, stream = False, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
         self.client = OpenAI(api_key=api_key, base_url=host)
+        self.stream = stream
     
     def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
         
@@ -41,6 +42,7 @@ class OpenAIWrapper(LLM):
             model = self.model_name,
             messages = messages,
             temperature=temperature,
+            stream=self.stream
         )
         if hasattr(completion, 'usage'):
             print(completion.usage)
@@ -54,13 +56,14 @@ class OpenAIWrapper(LLM):
         return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=40000, **kwargs):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, stream = False, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.engine = engine
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'), )
-        self.model_token = 16384 if model_name == 'gpt-4o-mini' else 40000
+        self.model_token = max_tokens
         self.max_tokens = min(self.model_token, max_tokens)
+        self.stream = stream
 
     def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
         try:
@@ -70,12 +73,14 @@ class ChatGPT(LLM):
                     model = self.model_name,
                     messages = messages,
                     response_format = response_format,
+                    stream = self.stream,
                 )
             else:
                 completion = self.client.chat.completions.create(
                     model = self.model_name,
                     messages = messages,
                     temperature=temperature,
+                    stream = self.stream,
                 )    
             
             response = completion.choices[0].message
