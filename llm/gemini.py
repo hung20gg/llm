@@ -36,12 +36,15 @@ class Gemini(LLM):
         self.__initiate()
         
     def __initiate(self, system_instruction=None):
+        self.system_instruction = system_instruction
+        self.model= genai.GenerativeModel(
+            model_name=self.model_name,
+            system_instruction=system_instruction
+            ) 
+            
+    def __change_system_instruction(self, system_instruction):
         if system_instruction != self.system_instruction:
-            self.system_instruction = system_instruction
-            self.model= genai.GenerativeModel(
-                model_name=self.model_name,
-                system_instruction=system_instruction
-                ) 
+            self.__initiate(system_instruction)
         
     def __call__(self, message, temperature=0.3, count_tokens=False):
         
