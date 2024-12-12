@@ -66,39 +66,56 @@ class ChatGPT(LLM):
         self.stream = stream
 
     def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
+        
         try:
-            start = time.time()
-            if response_format is not None: 
-                completion = self.client.beta.chat.completions.parse(
-                    model = self.model_name,
-                    messages = messages,
-                    response_format = response_format,
-                    stream = self.stream,
-                )
-            else:
-                completion = self.client.chat.completions.create(
+            if self.stream:
+                
+                response = self.client.chat.completions.create(
                     model = self.model_name,
                     messages = messages,
                     temperature=temperature,
-                    stream = self.stream,
-                )    
+                    stream = self.stream
+                )
+                
+                for chunk in response:
+                    content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if content:
+                        yield content
             
-            response = completion.choices[0].message
-            
-            print(completion.usage)
-            self.input_token += completion.usage.prompt_tokens
-            self.output_token += completion.usage.completion_tokens
-            end = time.time()
-            logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        
+            else:
+                start = time.time()
+                if response_format is not None: 
+                    completion = self.client.beta.chat.completions.parse(
+                        model = self.model_name,
+                        messages = messages,
+                        response_format = response_format,
+                        stream = self.stream,
+                    )
+                else:
+                    completion = self.client.chat.completions.create(
+                        model = self.model_name,
+                        messages = messages,
+                        temperature=temperature,
+                        stream = self.stream,
+                    )    
+                
+                response = completion.choices[0].message
+                
+                print(completion.usage)
+                self.input_token += completion.usage.prompt_tokens
+                self.output_token += completion.usage.completion_tokens
+                end = time.time()
+                logging.info(f"Completion time of {self.model_name}: {end - start}s")
 
-            
-            # Return the parsed response if it exists
-            if response_format is not None:
-                if response.parsed:
-                    return output_with_usage(response.parsed, completion.usage, count_tokens)
-                elif response.refusal:
-                    return output_with_usage(response.refusal, completion.usage, count_tokens)
-            return output_with_usage(response.content, completion.usage, count_tokens)
+                
+                # Return the parsed response if it exists
+                if response_format is not None:
+                    if response.parsed:
+                        return output_with_usage(response.parsed, completion.usage, count_tokens)
+                    elif response.refusal:
+                        return output_with_usage(response.refusal, completion.usage, count_tokens)
+                return output_with_usage(response.content, completion.usage, count_tokens)
         
         except Exception as e:
             # Handle edge cases
