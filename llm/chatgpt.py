@@ -27,54 +27,71 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key, stream = False, **kwargs):
+    def __init__(self, host, model_name, api_key, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
         self.client = OpenAI(api_key=api_key, base_url=host)
-        self.stream = stream
     
-    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
+    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False, stream = False, **kwargs):
         
-        start = time.time()
-        completion = self.client.chat.completions.create(
-            model = self.model_name,
-            messages = messages,
-            temperature=temperature,
-            stream=self.stream
-        )
-        if hasattr(completion, 'usage'):
-            print(completion.usage)
-            
-            self.input_token += completion.usage.prompt_tokens
-            self.output_token += completion.usage.completion_tokens
-        end = time.time()
-        logging.info(f"Completion time of {self.model_name}: {end - start}s")
-
+        try:
+            if stream:
+                response = self.client.chat.completions.create(
+                    model = self.model_name,
+                    messages = messages,
+                    temperature=temperature,
+                    stream = stream
+                )
+                for chunk in response:
+                    content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                    if content:
+                        yield content
+                
+            else:
         
-        return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
+                start = time.time()
+                completion = self.client.chat.completions.create(
+                    model = self.model_name,
+                    messages = messages,
+                    temperature=temperature,
+                    stream=self.stream
+                )
+                if hasattr(completion, 'usage'):
+                    print(completion.usage)
+                    
+                    self.input_token += completion.usage.prompt_tokens
+                    self.output_token += completion.usage.completion_tokens
+                end = time.time()
+                logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        
+                return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
+        
+        except Exception as e:
+            # Handle edge cases
+            print(e)
+            return None
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, stream = False, **kwargs):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.engine = engine
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'), )
         self.model_token = max_tokens
         self.max_tokens = min(self.model_token, max_tokens)
-        self.stream = stream
 
-    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
+    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False, stream = False, **kwargs):
         
         try:
-            if self.stream:
+            if stream:
                 
                 response = self.client.chat.completions.create(
                     model = self.model_name,
                     messages = messages,
                     temperature=temperature,
-                    stream = self.stream
+                    stream = stream
                 )
                 
                 for chunk in response:
@@ -90,14 +107,13 @@ class ChatGPT(LLM):
                         model = self.model_name,
                         messages = messages,
                         response_format = response_format,
-                        stream = self.stream,
+                        temperature=temperature,
                     )
                 else:
                     completion = self.client.chat.completions.create(
                         model = self.model_name,
                         messages = messages,
                         temperature=temperature,
-                        stream = self.stream,
                     )    
                 
                 response = completion.choices[0].message
