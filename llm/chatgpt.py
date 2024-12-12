@@ -27,111 +27,103 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key, **kwargs):
+    def __init__(self, host, model_name, api_key, stream = False, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
         self.client = OpenAI(api_key=api_key, base_url=host)
-    
-    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False, stream = False, **kwargs):
+        self.stream = stream
         
-        try:
-            if stream:
-                response = self.client.chat.completions.create(
-                    model = self.model_name,
-                    messages = messages,
-                    temperature=temperature,
-                    stream = stream
-                )
-                for chunk in response:
-                    content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                    if content:
-                        yield content
-                
-            else:
-        
-                start = time.time()
-                completion = self.client.chat.completions.create(
-                    model = self.model_name,
-                    messages = messages,
-                    temperature=temperature,
-                    stream=self.stream
-                )
-                if hasattr(completion, 'usage'):
-                    print(completion.usage)
+    def stream(self, message, **kwargs):
+        completion = self.client.chat.completions.create(
+            model = self.model_name,
+            messages = message,
+            stream = True,
+            **kwargs
+        )
+        for chunk in completion:
+            content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+            if content:
+                yield content
                     
-                    self.input_token += completion.usage.prompt_tokens
-                    self.output_token += completion.usage.completion_tokens
-                end = time.time()
-                logging.info(f"Completion time of {self.model_name}: {end - start}s")
+    
+    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
         
-                return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
+        start = time.time()
+        completion = self.client.chat.completions.create(
+            model = self.model_name,
+            messages = messages,
+            temperature=temperature,
+            stream=self.stream
+        )
+        if hasattr(completion, 'usage'):
+            print(completion.usage)
+            
+            self.input_token += completion.usage.prompt_tokens
+            self.output_token += completion.usage.completion_tokens
+        end = time.time()
+        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+
         
-        except Exception as e:
-            # Handle edge cases
-            print(e)
-            return None
+        return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, **kwargs):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, stream = False, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.engine = engine
         self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'), )
         self.model_token = max_tokens
         self.max_tokens = min(self.model_token, max_tokens)
-
-    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False, stream = False, **kwargs):
         
+    def stream(self, message, **kwargs):
+        completion = self.client.chat.completions.create(
+            model = self.model_name,
+            messages = message,
+            stream = True,
+            **kwargs
+        )
+        for chunk in completion:
+            content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+            if content:
+                yield content
+            
+
+    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False, **kwargs):
         try:
-            if stream:
-                
-                response = self.client.chat.completions.create(
+            start = time.time()
+            if response_format is not None: 
+                completion = self.client.beta.chat.completions.parse(
+                    model = self.model_name,
+                    messages = messages,
+                    response_format = response_format,
+                    stream = False,
+                )
+            else:
+                completion = self.client.chat.completions.create(
                     model = self.model_name,
                     messages = messages,
                     temperature=temperature,
-                    stream = stream
-                )
-                
-                for chunk in response:
-                    content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                    if content:
-                        yield content
+                    stream = False,
+                )    
             
-        
-            else:
-                start = time.time()
-                if response_format is not None: 
-                    completion = self.client.beta.chat.completions.parse(
-                        model = self.model_name,
-                        messages = messages,
-                        response_format = response_format,
-                        temperature=temperature,
-                    )
-                else:
-                    completion = self.client.chat.completions.create(
-                        model = self.model_name,
-                        messages = messages,
-                        temperature=temperature,
-                    )    
-                
-                response = completion.choices[0].message
-                
-                print(completion.usage)
-                self.input_token += completion.usage.prompt_tokens
-                self.output_token += completion.usage.completion_tokens
-                end = time.time()
-                logging.info(f"Completion time of {self.model_name}: {end - start}s")
+            response = completion.choices[0].message
+            
+            print(completion.usage)
+            self.input_token += completion.usage.prompt_tokens
+            self.output_token += completion.usage.completion_tokens
+            end = time.time()
+            logging.info(f"Completion time of {self.model_name}: {end - start}s")
 
-                
-                # Return the parsed response if it exists
-                if response_format is not None:
-                    if response.parsed:
-                        return output_with_usage(response.parsed, completion.usage, count_tokens)
-                    elif response.refusal:
-                        return output_with_usage(response.refusal, completion.usage, count_tokens)
-                return output_with_usage(response.content, completion.usage, count_tokens)
+            
+            # Return the parsed response if it exists
+            if response_format is not None:
+                if response.parsed:
+                    return output_with_usage(response.parsed, completion.usage, count_tokens)
+                elif response.refusal:
+                    return output_with_usage(response.refusal, completion.usage, count_tokens)
+            return output_with_usage(response.content, completion.usage, count_tokens)
         
         except Exception as e:
             # Handle edge cases
