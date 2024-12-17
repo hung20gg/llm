@@ -34,6 +34,7 @@ class Gemini(LLM):
         
         self.system_instruction = None
         self.__initiate()
+        self.chat_session = None
         
     def __initiate(self, system_instruction=None):
         self.system_instruction = system_instruction
@@ -45,6 +46,29 @@ class Gemini(LLM):
     def __change_system_instruction(self, system_instruction):
         if system_instruction != self.system_instruction:
             self.__initiate(system_instruction)
+            
+    def stream(self, message, keep_history=False, **kwargs):
+        
+        content = message[-1].get('content', '')
+        
+        if not keep_history and self.chat_session is not None:
+            history = message[:-1]
+            system_instruction = None
+            if history[0]['role'] == 'system':
+                system_instruction = history[0]['content']
+                self.__initiate(system_instruction)
+                history = history[1:]
+                
+            if isinstance(message, list):
+                history = convert_to_gemini_format(history) 
+
+            self.chat_session = self.model.start_chat(history)
+        
+        response = self.chat_session.send_message(content)
+        
+        return response.text
+            
+        
         
     def __call__(self, message, temperature=0.3, count_tokens=False):
         
