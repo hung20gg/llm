@@ -90,7 +90,7 @@ def get_code_from_text_response(text_response):
         print("No code response found in text response")
         return [{'language': 'text', 'code': text_response}]
 
-def convert_format(data, has_system=True):
+def convert_llama_format(data, has_system=True):
     prompt = ""
     sys_non_llama = ''
     for i, item in enumerate(data):
@@ -156,9 +156,9 @@ def flatten_conversation(messages):
     for message in messages:
         role = message['role']
         content = message['content']
-        conversation.append(f"{role.capitalize()}: {content}")
+        conversation.append(f"#### {role.capitalize()}\n\n: {content}")
 
-    return "\n".join(conversation)
+    return "\n\n".join(conversation)
 
 if __name__ == "__main__":
 

@@ -47,30 +47,34 @@ class Gemini(LLM):
         if system_instruction != self.system_instruction:
             self.__initiate(system_instruction)
             
-    def stream(self, message, keep_history=False, **kwargs):
+    def stream(self, message, temperature=0.6, keep_history=False, **kwargs):
         
-        content = message[-1].get('content', '')
-        
-        if not keep_history and self.chat_session is not None:
-            history = message[:-1]
-            system_instruction = None
-            if history[0]['role'] == 'system':
-                system_instruction = history[0]['content']
-                self.__initiate(system_instruction)
-                history = history[1:]
-                
-            if isinstance(message, list):
-                history = convert_to_gemini_format(history) 
+        system_instruction = None
+        if len(message) > 0 and message[0]['role'] == 'system':
+            system_instruction = message[0]['content']
+            self.__initiate(system_instruction)
+            message = message[1:]
+            
+        if isinstance(message, list):
+            message = convert_to_gemini_format(message) 
 
-            self.chat_session = self.model.start_chat(history)
         
-        response = self.chat_session.send_message(content)
+        response = self.model.generate_content(message, 
+                                               safety_settings=self.safety_settings,
+                                               generation_config=genai.types.GenerationConfig(
+                                                                    candidate_count=1,
+                                                                    max_output_tokens=8192,
+                                                                    temperature=temperature,
+                                                                    ),
+                                               stream=True
+                                            )   
         
-        return response.text
+        for chunk in response:
+            yield chunk.text
             
         
         
-    def __call__(self, message, temperature=0.3, count_tokens=False):
+    def __call__(self, message, temperature=0.4, count_tokens=False):
         
         start = time.time()
         

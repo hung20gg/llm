@@ -43,12 +43,12 @@ class OpenAIWrapper(LLM):
             **kwargs
         )
         for chunk in completion:
-            content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+            content = chunk.choices[0].delta.content
             if content:
                 yield content
                     
     
-    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False):
+    def __call__(self, messages, temperature = 0.6, response_format=None, count_tokens=False):
         
         start = time.time()
         completion = self.client.chat.completions.create(
@@ -78,19 +78,25 @@ class ChatGPT(LLM):
         self.max_tokens = min(self.model_token, max_tokens)
         
     def stream(self, message, **kwargs):
+        start = time.time()
         completion = self.client.chat.completions.create(
             model = self.model_name,
             messages = message,
             stream = True,
+            stream_options={"include_usage": True},
             **kwargs
         )
         for chunk in completion:
-            content = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
-            if content:
-                yield content
+            content = chunk.choices
+            if len(content) > 0:
+                yield content[0].delta.content
+                
+        end = time.time()
+        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        
             
 
-    def __call__(self, messages, temperature = 0.3, response_format=None, count_tokens=False, **kwargs):
+    def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, **kwargs):
         try:
             start = time.time()
             if response_format is not None: 
