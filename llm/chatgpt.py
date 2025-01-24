@@ -27,13 +27,12 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key, stream = False, **kwargs):
+    def __init__(self, host, model_name, api_key, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
         self.client = OpenAI(api_key=api_key, base_url=host)
-        self.stream = stream
         
     def stream(self, message, **kwargs):
         completion = self.client.chat.completions.create(
