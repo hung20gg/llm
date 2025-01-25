@@ -54,7 +54,7 @@ class OpenAIWrapper(LLM):
             model = self.model_name,
             messages = messages,
             temperature=temperature,
-            stream=self.stream
+            stream=False
         )
         if hasattr(completion, 'usage'):
             print(completion.usage)
