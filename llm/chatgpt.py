@@ -27,35 +27,63 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key, **kwargs):
+    def __init__(self, host, model_name, api_key, multimodal = False, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
         self.client = OpenAI(api_key=api_key, base_url=host)
+        self.multimodal = multimodal
         
-    def stream(self, message, **kwargs):
-        completion = self.client.chat.completions.create(
-            model = self.model_name,
-            messages = message,
-            stream = True,
-            **kwargs
-        )
-        for chunk in completion:
-            content = chunk.choices[0].delta.content
-            if content:
-                yield content
+    def stream(self, messages, **kwargs):
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+
+        try:
+            completion = self.client.chat.completions.create(
+                model = self.model_name,
+                messages = messages,
+                stream = True,
+                **kwargs
+            )
+            for chunk in completion:
+                content = chunk.choices[0].delta.content
+                if content:
+                    yield content
+        
+        except Exception as e:
+            if e.code == 400 and not self.multimodal:
+                self.multimodal = True
+                self.stream(messages, **kwargs)
+            else:
+                print(e)
+                return ''
                     
     
     def __call__(self, messages, temperature = 0.6, response_format=None, count_tokens=False):
         
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+
         start = time.time()
-        completion = self.client.chat.completions.create(
-            model = self.model_name,
-            messages = messages,
-            temperature=temperature,
-            stream=False
-        )
+        try:
+            completion = self.client.chat.completions.create(
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                stream=False
+            )
+        except Exception as e:
+
+            if e.code == 400 and not self.multimodal:
+                print("Switching to multimodal")
+                self.multimodal = True
+                return self(messages, temperature, response_format, count_tokens)
+
+            else:
+                print(e)
+                return ''
+
         if hasattr(completion, 'usage'):
             print(completion.usage)
             
@@ -96,6 +124,7 @@ class ChatGPT(LLM):
             
 
     def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, **kwargs):
+        
         try:
             start = time.time()
             if response_format is not None: 

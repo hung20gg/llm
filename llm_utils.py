@@ -121,7 +121,11 @@ def convert_to_multimodal_format(messages, has_system=True):
     for i, item in enumerate(messages):
         role = item["role"]
         content = item["content"]
-        new_messages.append({"role": role, "content": [{'type':'text', 'text':content}]})
+        if isinstance(content, str):
+            new_messages.append({"role": role, "content": [{'type':'text', 'text':content}]})
+        else:
+            new_messages.append({"role": role, "content": content})
+               
     return new_messages
 
 def convert_non_system_prompts(messages):
