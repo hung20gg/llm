@@ -52,7 +52,7 @@ class OpenAIWrapper(LLM):
                     yield content
         
         except Exception as e:
-            if e.code == 400 and not self.multimodal:
+            if not self.multimodal:
                 self.multimodal = True
                 self.stream(messages, **kwargs)
             else:
@@ -75,7 +75,7 @@ class OpenAIWrapper(LLM):
             )
         except Exception as e:
 
-            if e.code == 400 and not self.multimodal:
+            if not self.multimodal:
                 print("Switching to multimodal")
                 self.multimodal = True
                 return self(messages, temperature, response_format, count_tokens)
