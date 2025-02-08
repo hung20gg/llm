@@ -110,7 +110,7 @@ class ChatGPT(LLM):
         if api_key is None:
             api_key=os.getenv('OPENAI_API_KEY')
         elif random_key:
-            possible_keys = get_all_api_key(api_key)
+            possible_keys = get_all_api_key('OPENAI_API_KEY')
             api_key = random.choice(possible_keys)
 
         self.client = OpenAI(api_key=api_key)

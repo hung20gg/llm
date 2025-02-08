@@ -9,6 +9,7 @@ from google import genai
 import random
 
 
+
 from google.genai.types import HarmCategory, HarmBlockThreshold
 
 from dotenv import load_dotenv
@@ -50,8 +51,8 @@ class Gemini(LLM):
 
         if not api_key:
             api_key = os.getenv('GEMINI_API_KEY')
-        elif random_key:
-            all_possible_keys = get_all_api_key(api_key)
+        if random_key:
+            all_possible_keys = get_all_api_key('GEMINI_API_KEY')
             api_key = random.choice(all_possible_keys)
 
         self.client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
