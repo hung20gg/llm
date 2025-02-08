@@ -1,15 +1,26 @@
 # Library for using LLM easily
 Support model directly from Hugging Face via `CoreLLMs` (with quantization), AWS Bedrock via `BedrockLLMs` and gemini via `Gemini`
 
-Make sure to install requirements library: `boto3`, `transformers`, `openai` and `google-generativeai`
+Make sure to install requirements library: `boto3`, `transformers`, `openai` and `google-genai` (old: `google-generativeai`)
+
+### Update:
+**Gemini** is now switching to newer Python SDK version.
 
 ## Setup:
 
 Create a `.env` file and pass every API key in it. Check each class for specific key.
 
+- Gemini: `GEMINI_API_KEY` (new SDK) or `GENAI_API_KEY` (old SDK)
+- GPT: `OPENAI_API_KEY`
+
+
 ## Usecase
 Just call the model and it will work 
-```
+
+```python
+from llm.llm.hugging_face import CoreLLMs
+
+# Transformer model
 llm = CoreLLMs(quantization = "int4") # if not passing model name, it will automatically use Llama 3
 
 message = [
@@ -21,3 +32,34 @@ message = [
 
 response = llm(message)
 ```
+
+### For OpenAI wrapper (DeepSeek, Ollama, vLLM, etc.)
+
+```python
+from llm import OpenAIWrapper
+
+host = "http://localhost:8000/v1" # vLLM host
+model_name = "Qwen/Qwen2.5-Coder-32B-Instruct-GPTQ-Int4"
+api_key = None
+
+llm = OpenAIWrapper(host = host, model_name = model_name, api_key = api_key)
+
+```
+
+
+### Rotate Key
+For picking random key (rotate key to avoid max limit), set param `random_key = True`. Example:
+
+```python
+from llm import Gemini
+
+llm = Gemini(random_key = True)
+```
+
+Your API in `.env` for multiple key should be like this
+```
+GEMINI_API_KEY={key_0}
+GEMINI_API_KEY_1={key_1}
+GEMINI_API_KEY_2={key_2}
+...
+``` 

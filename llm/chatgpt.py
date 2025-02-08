@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import os
+import random
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,11 +28,16 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key, multimodal = False, **kwargs):
+    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, **kwargs):
         super().__init__()
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
+
+        if api_key is None and random_key:
+            possible_keys = get_all_api_key(api_prefix)
+            api_key = random.choice(possible_keys)
+
         self.client = OpenAI(api_key=api_key, base_url=host)
         self.multimodal = multimodal
         
@@ -96,11 +102,18 @@ class OpenAIWrapper(LLM):
         return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, stream = False, **kwargs):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.engine = engine
-        self.client = OpenAI(api_key=os.getenv('OPENAI_API_KEY'), )
+
+        if api_key is None:
+            api_key=os.getenv('OPENAI_API_KEY')
+        elif random_key:
+            possible_keys = get_all_api_key(api_key)
+            api_key = random.choice(possible_keys)
+
+        self.client = OpenAI(api_key=api_key)
         self.model_token = max_tokens
         self.max_tokens = min(self.model_token, max_tokens)
         
@@ -123,7 +136,7 @@ class ChatGPT(LLM):
         
             
 
-    def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, **kwargs):
+    def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, tools = None, **kwargs):
         
         try:
             start = time.time()
@@ -133,6 +146,7 @@ class ChatGPT(LLM):
                     messages = messages,
                     response_format = response_format,
                     stream = False,
+                    **kwargs
                 )
             else:
                 completion = self.client.chat.completions.create(
@@ -140,6 +154,8 @@ class ChatGPT(LLM):
                     messages = messages,
                     temperature=temperature,
                     stream = False,
+                    tools = tools,
+                    **kwargs
                 )    
             
             response = completion.choices[0].message
@@ -157,6 +173,11 @@ class ChatGPT(LLM):
                     return output_with_usage(response.parsed, completion.usage, count_tokens)
                 elif response.refusal:
                     return output_with_usage(response.refusal, completion.usage, count_tokens)
+            
+            # Function calling
+            elif isinstance(tools, list) and len(tools) > 0:
+                return output_with_usage(response.tool_calls, completion.usage, count_tokens)
+            
             return output_with_usage(response.content, completion.usage, count_tokens)
         
         except Exception as e:

@@ -2,6 +2,33 @@ import re
 import json
 import ast
 
+
+from dotenv import load_dotenv
+load_dotenv()
+
+import os
+
+
+def get_all_api_key(key: str) -> list[str]:
+
+    api_keys = []
+
+    # Orginal API key
+    api_key = os.getenv(key)
+    if api_key:
+        api_keys.append(api_key)
+    
+    count = 1
+    while os.getenv(f"{key}_{count}"):
+        api_keys.append(os.getenv(f"{key}_{count}"))
+        count += 1
+    
+    print(f"Found {len(api_keys)} API keys")
+    
+    return api_keys
+
+
+
 def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefix = '', model_type = 'gpt-4o-mini', max_tokens = 40000):
     list_of_batches = []
     for i in range(0, len(messages), example_per_batch):
@@ -22,6 +49,8 @@ def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefi
             batch_json.append(json_obj)
         list_of_batches.append(batch_json)
     return list_of_batches
+
+
 
 def check_json(json_data):
     try:
@@ -73,6 +102,8 @@ def get_json_from_text_response(text_response, new_method=False):
     print("No JSON response found in text response")
     return text_response
 
+
+
 def get_code_from_text_response(text_response):
     # Extract the code response from the text response
     code_response = re.search(r"```.*```", text_response, re.DOTALL)
@@ -89,6 +120,8 @@ def get_code_from_text_response(text_response):
     else:
         print("No code response found in text response")
         return [{'language': 'text', 'code': text_response}]
+
+
 
 def convert_llama_format(data, has_system=True):
     prompt = ""
@@ -114,6 +147,8 @@ def convert_llama_format(data, has_system=True):
 
     return prompt.rstrip("\n")
 
+
+
 def convert_to_multimodal_format(messages, has_system=True):
     new_messages = []
     if not has_system:
@@ -128,6 +163,8 @@ def convert_to_multimodal_format(messages, has_system=True):
                
     return new_messages
 
+
+
 def convert_non_system_prompts(messages):
     new_messages = []
     if messages[0]['role'] == 'system':
@@ -139,6 +176,9 @@ def convert_non_system_prompts(messages):
             new_messages.append({"role": messages[i]['role'], "content": message})
         return new_messages
     return messages
+
+
+
 
 def convert_to_gemini_format(messages, has_system=True):
     new_messages = []
@@ -153,6 +193,8 @@ def convert_to_gemini_format(messages, has_system=True):
             content = [content]
         new_messages.append({"role": role, "parts": content})
     return new_messages
+
+
 
 def flatten_conversation(messages):
     conversation = []
