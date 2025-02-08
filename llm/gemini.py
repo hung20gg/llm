@@ -154,10 +154,6 @@ class Gemini(LLM):
                                                         
             print(response.usage_metadata)
             
-            if hasattr(response.usage_metadata, 'prompt_token_count'):
-                self.input_token += response.usage_metadata.prompt_token_count
-                self.output_token += response.usage_metadata.candidates_token_count
-            
             end = time.time()
             logging.info(f"Completion time of {self.model_name}: {end - start}s")
             
@@ -169,8 +165,7 @@ class Gemini(LLM):
                     "total_token": response.usage_metadata.total_token_count
                 }
             else:
-                # return response.candidates[0].content.parts[0].text
-                return response
+                return response.candidates[0].content.parts[0].text
         except Exception as e:
             logging.error(f"Error: {e}")
-            return None
+            return ''
