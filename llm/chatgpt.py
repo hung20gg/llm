@@ -185,9 +185,18 @@ class ChatGPT(LLM):
             print(e)
             return None
     
-    def batch_call(self, list_messages, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
+    def batch_call(self, list_messages, transform = True, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
         
-        list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=example_per_batch, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
+        """
+        Batch call for ChatGPT
+        list_messages: list of messages or custom batch
+        transform: whether to transform the list of messages into batch
+        prefix: prefix for the batch file
+        example_per_batch: number of messages per batch
+        """
+
+        if transform:
+            list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=example_per_batch, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
 
         if not os.path.exists('process'):
             os.mkdir('process')
@@ -217,9 +226,66 @@ class ChatGPT(LLM):
                 }
             )
             print(f"Batch {i} created")
-            with open(f'batch/batch-{prefix}-{i}.json', 'w', encoding='utf-8') as file:
-                file.write(json.dumps(batch_job.id, indent=4))
-        
+            with open(f'batch/batch-{prefix}.jsonl', 'a', encoding='utf-8') as file:
+                file.write(json.dumps({"id": batch_job.id}))
+                file.write('\n')
+    
+    def recall_local_batch(self, prefix = '' ):
+        batch_ids = []
+        if os.path.exists(f'batch/batch-{prefix}.jsonl'):
+            with open(f'batch/batch-{prefix}.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    batch_id = json.loads(line)['id']
+
+                    batch = self.retrieve(batch_id)
+
+
+                    print(f"Batch {batch_id} status: {batch.status}")
+                    batch_ids.append({
+                        "id": batch_id,
+                        "status": batch.status
+                    })
+        return batch_ids
+
+    def recall_online_batch(self, prefix = ''):
+        batch_ids = []
+        batches = self.client.batches.list()
+        for batch in batches:
+                print(f"Batch {batch.id} status: {batch.status}")
+                batch_ids.append({
+                    "id": batch.id,
+                    "status": batch.status
+                })
+        return batch_ids
+
+    def get_successful_messages(self, batch_ids: list[dict]):
+        """
+        Get successful messages from batch
+        Batch_ids: list of batch ids (from recall_local_batch or recall_online_batch)
+        """
+
+        successful_messages = []
+        for batch_id in batch_ids:
+            batch = self.retrieve(batch_id["id"])
+            if batch.status == 'completed':
+                if batch.output_file_id:
+                    file_response = self.client.files.content(batch.output_file_id).text
+                    
+                    # Save the response to a file
+                    with open(f'batch/response-{batch_id["id"]}.jsonl', 'w', encoding='utf-8') as file:
+                        file.write(file_response)
+                    
+                    with open(f'batch/response-{batch_id["id"]}.jsonl', 'r', encoding='utf-8') as file:
+                        for line in file:
+                            messages = json.loads(line)
+                            messages_obj = {
+                                "ids": messages.get('custom_id'),
+                                "response": messages.get('response').get('body').get('choices')[0].get('message').get('content')
+                            }
+                            successful_messages.append(messages_obj)
+
+        return successful_messages
+
     def retrieve(self, batch_id):
         return self.client.batches.retrieve(batch_id)
     

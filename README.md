@@ -1,6 +1,10 @@
 # Library for using LLM easily
 Support model directly from Hugging Face via `CoreLLMs` (with quantization), AWS Bedrock via `BedrockLLMs` and gemini via `Gemini`
 
+Support function calling with `Gemini` and `ChatGPT` via `tools` and `**config` params
+
+Support batch calling of `ChatGPT` (50% discount, why not)
+
 Make sure to install requirements library: `boto3`, `transformers`, `openai` and `google-genai` (old: `google-generativeai`)
 
 ### Update:
