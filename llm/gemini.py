@@ -165,7 +165,131 @@ class Gemini(LLM):
                     "total_token": response.usage_metadata.total_token_count
                 }
             else:
-                return response.candidates[0].content.parts[0].text
+                return response
         except Exception as e:
             logging.error(f"Error: {e}")
             return ''
+        
+from collections import deque
+
+class ClientGemini:
+    def __init__(self, model_name: str, api_key: str, rpm: int, **kwargs):
+        self.llm = Gemini(model_name=model_name, api_key=api_key, **kwargs)
+        self.current_request = 0
+        self.rpm = rpm
+        self.request_time = deque(maxlen=rpm)
+
+    def __binary_search_time_index(self, time):
+        left = 0
+        right = len(self.request_time) - 1
+
+        while left <= right:
+            mid = (left + right) // 2
+            if self.request_time[mid] == time:
+                return mid
+            elif self.request_time[mid] < time:
+                left = mid + 1
+            else:
+                right = mid - 1
+        return left
+
+    def check_max_rpm(self):
+        current_time = time.time() 
+        last_1_min = current_time - 60
+        if len(self.request_time) == self.rpm:
+            begin_request = self.request_time[0]
+
+            # Check if the first request is older than 1 min
+            if begin_request <= last_1_min:
+                self.request_time.popleft()
+                self.request_time.append(current_time)
+                return False
+            else:
+                return True
+        else:
+            self.request_time.append(current_time)
+            return False
+
+    def __call__(self, **kwargs):
+        return self.llm(**kwargs)
+    
+    def __str___(self):
+        return f"ClientGemini(model_name={self.llm.model_name}, rpm={self.rpm})"
+
+        
+
+
+class RotateGemini:
+    """ 
+    Using queue to call Gemini models in a round-robin fashion
+    """
+    def __init__(self, model_name = 'gemini-2.0-flash', api_keys: list[str] = None, rpm: int = 15,  **kwargs):
+        self.model_name = model_name
+        if not api_keys:
+            api_keys = get_all_api_key('GEMINI_API_KEY')
+        self.api_keys = api_keys
+
+        # Randomize the api_keys
+        self.api_keys = random.shuffle(self.api_keys)
+
+        self.queue = deque()
+        for api_key in api_keys:
+            self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
+
+        
+    def try_request(self, client,  **kwargs):
+        try:
+            print(client)
+            return client( **kwargs), True
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            return '', False
+
+    def __call__(self, messages, **kwargs):
+        # Check if the first client in the queue has reached the maximum rpm
+        client = self.queue.popleft()
+        count = 0
+        max_count = len(self.queue) * 2
+        while client.check_max_rpm():
+            self.queue.append(client)
+            client = self.queue.popleft()
+            count += 1
+            if count % len(self.queue) == 0:
+                logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                time.sleep(10)
+            if count > max_count:
+                break
+        
+        # If the client has reached the maximum rpm, add back to the queue and try to make a request
+        self.queue.append(client)
+
+        response, success = self.try_request(client, messages = messages, **kwargs)
+        
+        tries = 0
+        while not success:
+            client = self.queue.popleft()
+
+            # Check if the client has reached the maximum rpm
+            if client.check_max_rpm():
+                self.queue.append(client)
+                continue
+
+            # If the client has reached the maximum rpm, add back to the queue and try to make a request
+            response, success = self.try_request(client, messages = messages, **kwargs)
+            tries += 1
+            time.sleep(min(tries, 10))
+            self.queue.append(client)
+            if tries > len(self.queue) * 2:
+                logging.error("All clients have failed to make a request")
+                return ''
+            
+        return response.candidates[0].content.parts[0].text
+        
+
+        
+
+    
+    def stream(self, messages, temperature=0.6, **config):
+        pass        
+    def __repr__(self):
+        return f"RoutingGemini(model_name={self.model_name}, api_key={self.api_key}, random"

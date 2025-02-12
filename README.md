@@ -60,6 +60,20 @@ from llm import Gemini
 llm = Gemini(random_key = True)
 ```
 
+For auto try-catch with Queue (runnable but not fully optimized):
+
+```python
+from llm import RotateGemini # as Gemini
+
+llm = RotateGemini(model_name = 'gemini-2.0-flash', rpm = 15)
+
+```
+Notice RPM (Request per minutes) for each model.
+- Pro models: 2 RPM
+- Flash models: 15 RPM
+- Thinking: 10 RPM
+- Lite: 30 RPM
+
 Your API in `.env` for multiple key should be like this
 ```
 GEMINI_API_KEY={key_0}
