@@ -201,7 +201,12 @@ class ClientGemini:
 
             # Check if the first request is older than 1 min
             if begin_request <= last_1_min:
-                self.request_time.popleft()
+                while len(self.request_time) > 0 and self.request_time[0] <= last_1_min:
+                    self.request_time.popleft()
+                    if len(self.request_time) == 0:
+                        self.request_time.append(current_time)
+                        return False
+                
                 self.request_time.append(current_time)
                 return False
             else:
