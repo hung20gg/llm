@@ -165,7 +165,7 @@ class Gemini(LLM):
                     "total_token": response.usage_metadata.total_token_count
                 }
             else:
-                return response
+                return response.candidates[0].content.parts[0].text
         except Exception as e:
             logging.error(f"Error: {e}")
             return ''
@@ -283,7 +283,7 @@ class RotateGemini:
                 logging.error("All clients have failed to make a request")
                 return ''
             
-        return response.candidates[0].content.parts[0].text
+        return response
         
 
         
