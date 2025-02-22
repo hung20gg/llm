@@ -215,9 +215,12 @@ class ClientGemini:
             self.request_time.append(current_time)
             return False
 
-    def __call__(self, **kwargs):
-        return self.llm(**kwargs)
+    def __call__(self, *args, **kwargs):
+        return self.llm(*args, **kwargs)
     
+    def stream(self,*args, **kwargs):
+        return self.llm.stream(*args, **kwargs)
+
     def __str___(self):
         return f"ClientGemini(model_name={self.llm.model_name}, rpm={self.rpm})"
 
@@ -256,8 +259,8 @@ class RotateGemini:
         count = 0
         max_count = len(self.queue) * 2
         while client.check_max_rpm():
-            self.queue.append(client)
-            client = self.queue.popleft()
+            self.queue.append(client) # Add back to the queue
+            client = self.queue.popleft() # Get the next client
             count += 1
             if count % len(self.queue) == 0:
                 logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
@@ -290,11 +293,22 @@ class RotateGemini:
             
         return response
         
+    def stream(self, messages, **kwargs):
+        client = self.queue.popleft()
+        count = 0
+        max_count = len(self.queue) * 2
+        while client.check_max_rpm():
+            self.queue.append(client)
+            client = self.queue.popleft()
+            count += 1
+            if count % len(self.queue) == 0:
+                logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                time.sleep(10)
+            if count > max_count:
+                break
 
-        
-
-    
-    def stream(self, messages, temperature=0.6, **config):
-        pass        
+        self.queue.append(client)
+        return client.stream(messages = messages, **kwargs)
+             
     def __repr__(self):
         return f"RoutingGemini(model_name={self.model_name}, api_key={self.api_key}, random"
