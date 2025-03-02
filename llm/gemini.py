@@ -25,7 +25,7 @@ logging.basicConfig(
 )  
       
 class Gemini(LLM):
-    def __init__(self, model_name = 'gemini-1.5-flash-002', api_key = None, random_key = False, **kwargs):
+    def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.model_type = 'gemini'
@@ -91,7 +91,23 @@ class Gemini(LLM):
         for chunk in response:
             yield chunk.text
             
-        
+    @staticmethod 
+    def convert_to_gemini_format(contents, has_system=True): 
+        parts = []
+        for part in contents:
+            if isinstance(part, str):
+                parts.append(types.Part.from_text(text=part))
+            elif isinstance(part, dict):
+                if part.get('type') == 'text':
+                    parts.append(types.Part.from_text(text=part['text']))
+                elif part.get('type') == 'image_url':
+                    parts.append(types.Part.from_uri(file_uri=part['image_url']['url'], mime_type='image/jpeg'))
+                elif part.get('type') == 'image':
+                    parts.append(types.Part.from_bytes(data=pil_to_base64(part['image']), mime_type='image/jpeg'))
+                else:
+                    type_ = part.get('type')
+                    raise ValueError(f"Invalid type: {type_}")
+        return parts
         
     def __call__(self, messages, temperature=0.4, tools = [], count_tokens=False, **config):
         
@@ -108,7 +124,9 @@ class Gemini(LLM):
         if isinstance(messages, list) and isinstance(messages[0], dict):
             messages = convert_to_gemini_format(messages) 
             for msg in messages:
-                contents.append(types.Content(role=msg['role'], parts=[types.Part.from_text(text=msg['parts'][0])]))
+                parts = self.convert_to_gemini_format(msg['parts'])
+
+                contents.append(types.Content(role=msg['role'], parts=parts))
         else:
             contents = [messages]
 
@@ -263,8 +281,8 @@ class RotateGemini:
             client = self.queue.popleft() # Get the next client
             count += 1
             if count % len(self.queue) == 0:
-                logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
-                time.sleep(10)
+                logging.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
+                time.sleep(30)
             if count > max_count:
                 break
         

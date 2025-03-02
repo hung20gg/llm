@@ -1,12 +1,26 @@
 import re
 import json
 import ast
-
+import numpy as np
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import os
+
+from PIL import Image
+import base64
+from io import BytesIO
+
+def pil_to_base64(image):
+    if isinstance(image, str):
+        image = Image.open(image)
+    elif isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+
+    buffered = BytesIO()
+    image.save(buffered, format="JPEG")  # Change format if needed
+    return base64.b64encode(buffered.getvalue()).decode()
 
 
 def get_all_api_key(key: str) -> list[str]:
@@ -158,6 +172,20 @@ def convert_to_multimodal_format(messages, has_system=True):
         content = item["content"]
         if isinstance(content, str):
             new_messages.append({"role": role, "content": [{'type':'text', 'text':content}]})
+        elif isinstance(content, list):
+            new_content = []
+            for c in content:
+                if isinstance(c, dict) and c.get('type') == 'image':
+                    new_content.append(
+                        {
+                            'type': 'image_url',
+                            'image_url': {'url': f"data:image/png;base64,{pil_to_base64(c['image'])}"}
+                        }
+                    )
+                    
+                else:
+                    new_content.append(c)
+
         else:
             new_messages.append({"role": role, "content": content})
                
