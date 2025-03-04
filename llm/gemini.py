@@ -104,6 +104,9 @@ class Gemini(LLM):
                     parts.append(types.Part.from_uri(file_uri=part['image_url']['url'], mime_type='image/jpeg'))
                 elif part.get('type') == 'image':
                     parts.append(types.Part.from_bytes(data=pil_to_base64(part['image']), mime_type='image/jpeg'))
+                elif part.get('type') == 'bytes':
+                    mime_type = part.get('mine_type', 'image/jpeg')
+                    parts.append(types.Part.from_bytes(data=part['bytes'], mime_type=mime_type))
                 else:
                     type_ = part.get('type')
                     raise ValueError(f"Invalid type: {type_}")
@@ -114,21 +117,25 @@ class Gemini(LLM):
         start = time.time()
         
         system_instruction = None
-        if messages[0]['role'] == 'system':
-            system_instruction = messages[0]['content']
-            messages = messages[1:]
-            
         print(self.model_name)
 
         contents = []
         if isinstance(messages, list) and isinstance(messages[0], dict):
+            
+            if messages[0]['role'] == 'system':
+                system_instruction = messages[0]['content']
+                messages = messages[1:]
+
             messages = convert_to_gemini_format(messages) 
             for msg in messages:
                 parts = self.convert_to_gemini_format(msg['parts'])
 
                 contents.append(types.Content(role=msg['role'], parts=parts))
-        else:
+        elif isinstance(messages, str):
             contents = [messages]
+
+        else:
+            contents = messages
 
         # Check function calling:
         bool_function = False

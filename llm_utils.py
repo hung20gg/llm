@@ -22,6 +22,14 @@ def pil_to_base64(image):
     image.save(buffered, format="JPEG")  # Change format if needed
     return base64.b64encode(buffered.getvalue()).decode()
 
+def img_to_pil(image):
+    if isinstance(image, str):
+        image = Image.open(image)
+    elif isinstance(image, np.ndarray):
+        image = Image.fromarray(image)
+
+    return image
+
 
 def get_all_api_key(key: str) -> list[str]:
 
@@ -185,7 +193,7 @@ def convert_to_multimodal_format(messages, has_system=True):
                     
                 else:
                     new_content.append(c)
-
+            new_messages.append({"role": role, "content": new_content})
         else:
             new_messages.append({"role": role, "content": content})
                

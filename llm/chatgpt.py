@@ -102,7 +102,7 @@ class OpenAIWrapper(LLM):
         return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, **kwargs):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, multimodal = False, **kwargs):
         super().__init__()
         self.model_name = model_name
         self.engine = engine
@@ -116,12 +116,16 @@ class ChatGPT(LLM):
         self.client = OpenAI(api_key=api_key)
         self.model_token = max_tokens
         self.max_tokens = min(self.model_token, max_tokens)
+        self.multimodal = multimodal
         
-    def stream(self, message, **kwargs):
+    def stream(self, messages, **kwargs):
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+
         start = time.time()
         completion = self.client.chat.completions.create(
             model = self.model_name,
-            messages = message,
+            messages = messages,
             stream = True,
             stream_options={"include_usage": True},
             **kwargs
@@ -138,6 +142,9 @@ class ChatGPT(LLM):
 
     def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, tools = None, **kwargs):
         
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+
         try:
             start = time.time()
             if response_format is not None: 
