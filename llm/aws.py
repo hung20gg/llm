@@ -26,7 +26,7 @@ class BedRockLLMs(LLM):
         self.device = None
     
     def __call__(self, message):
-        prompt = convert_format(message)
+        prompt = convert_llama_format(message)
         if 'anthropic' in self.model_id.lower():
             request = {
                 "anthropic_version": "bedrock-2023-05-31",
