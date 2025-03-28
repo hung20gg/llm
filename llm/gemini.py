@@ -263,6 +263,8 @@ class RotateGemini:
         for api_key in api_keys:
             self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, igrone_quota = False, **kwargs))
 
+        self.len_queue = len(self.queue)
+
         
     def try_request(self, client,  **kwargs):
         try:
@@ -318,8 +320,16 @@ class RotateGemini:
         max_count = len(self.queue) * 2
         while client.check_max_rpm():
             self.queue.append(client)
+
+            assert len(self.queue) != self.len_queue, "Client leakage"
+
             client = self.queue.popleft()
             count += 1
+
+            # Only 1 api key
+            if self.len_queue == 1:
+                break
+
             if count % len(self.queue) == 0:
                 logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
                 time.sleep(10)
