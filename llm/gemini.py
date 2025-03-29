@@ -25,7 +25,7 @@ logging.basicConfig(
 )  
       
 class Gemini(LLM):
-    def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, **kwargs):
+    def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, igrone_quota = True, **kwargs):
         super().__init__(model_name=model_name)
         self.model_name = model_name
         self.model_type = 'gemini'
@@ -55,10 +55,12 @@ class Gemini(LLM):
             all_possible_keys = get_all_api_key('GEMINI_API_KEY')
             api_key = random.choice(all_possible_keys)
 
+        self.__api_key = str(api_key)
         self.client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
         
         self.system_instruction = None
         self.chat_session = None
+        self.ignore_quota = igrone_quota
             
     def stream(self, messages, temperature=0.6, **config):
         
@@ -192,8 +194,14 @@ class Gemini(LLM):
             else:
                 return response.candidates[0].content.parts[0].text
         except Exception as e:
-            logging.error(f"Error: {e}")
-            return ''
+
+
+            # Log the error
+            logging.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            if self.ignore_quota:
+                return ''
+            else:
+                raise e
         
 from collections import deque
 
@@ -203,20 +211,6 @@ class ClientGemini:
         self.current_request = 0
         self.rpm = rpm
         self.request_time = deque(maxlen=rpm)
-
-    def __binary_search_time_index(self, time):
-        left = 0
-        right = len(self.request_time) - 1
-
-        while left <= right:
-            mid = (left + right) // 2
-            if self.request_time[mid] == time:
-                return mid
-            elif self.request_time[mid] < time:
-                left = mid + 1
-            else:
-                right = mid - 1
-        return left
 
     def check_max_rpm(self):
         current_time = time.time() 
@@ -267,14 +261,16 @@ class RotateGemini:
         random.shuffle(self.__api_keys)
 
         self.queue = deque()
-        for api_key in self.__api_keys:
-            self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
+        for api_key in api_keys:
+            self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, igrone_quota = False, **kwargs))
+
+        self.len_queue = len(self.queue)
 
         
     def try_request(self, client,  **kwargs):
         try:
             print(client)
-            return client( **kwargs), True
+            return client(**kwargs), True
         except Exception as e:
             logging.error(f"Error: {e}")
             return '', False
@@ -325,8 +321,16 @@ class RotateGemini:
         max_count = len(self.queue) * 2
         while client.check_max_rpm():
             self.queue.append(client)
+
+            assert len(self.queue) != self.len_queue, "Client leakage"
+
             client = self.queue.popleft()
             count += 1
+
+            # Only 1 api key
+            if self.len_queue == 1:
+                break
+
             if count % len(self.queue) == 0:
                 logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
                 time.sleep(10)

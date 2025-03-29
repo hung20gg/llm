@@ -28,7 +28,7 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, **kwargs):
+    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, igrone_quota = True, **kwargs):
         super().__init__(model_name=model_name)
         self.host = host
         self.model_name = model_name
@@ -38,8 +38,11 @@ class OpenAIWrapper(LLM):
             possible_keys = get_all_api_key(api_prefix)
             api_key = random.choice(possible_keys)
 
+        self.__api_key = str(api_key)
         self.client = OpenAI(api_key=api_key, base_url=host)
         self.multimodal = multimodal
+        self.ignore_quota = igrone_quota
+
         
     def stream(self, messages, **kwargs):
         if self.multimodal:
@@ -82,13 +85,18 @@ class OpenAIWrapper(LLM):
         except Exception as e:
 
             if not self.multimodal:
-                print("Switching to multimodal")
+                logging.warning("Switching to multimodal")
                 self.multimodal = True
                 return self(messages, temperature, response_format, count_tokens)
 
             else:
-                print(e)
-                return ''
+                
+                # Handle edge cases
+                logging.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+                if self.ignore_quota:
+                    return ''
+                else:
+                    raise e
 
         if hasattr(completion, 'usage'):
             print(completion.usage)
@@ -102,7 +110,7 @@ class OpenAIWrapper(LLM):
         return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, multimodal = False, **kwargs):
+    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, multimodal = False, ignore_quota = True, **kwargs):
         super().__init__(model_name=model_name)
         self.model_name = model_name
         self.engine = engine
@@ -113,10 +121,12 @@ class ChatGPT(LLM):
             possible_keys = get_all_api_key('OPENAI_API_KEY')
             api_key = random.choice(possible_keys)
 
+        self.__api_key = api_key
         self.client = OpenAI(api_key=api_key)
         self.model_token = max_tokens
         self.max_tokens = min(self.model_token, max_tokens)
         self.multimodal = multimodal
+        self.ignore_quota = ignore_quota
         
     def stream(self, messages, **kwargs):
         if self.multimodal:
@@ -189,8 +199,11 @@ class ChatGPT(LLM):
         
         except Exception as e:
             # Handle edge cases
-            print(e)
-            return None
+            logging.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            if self.ignore_quota:
+                return ''
+            else:
+                raise e
     
     def batch_call(self, list_messages, transform = True, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
         
