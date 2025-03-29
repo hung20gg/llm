@@ -62,7 +62,7 @@ class Gemini(LLM):
         self.chat_session = None
         self.ignore_quota = igrone_quota
             
-    def stream(self, messages, temperature=0.6, **config):
+    def stream(self, messages, temperature=0.8, **config):
         
         system_instruction = None
         if len(messages) > 0 and messages[0]['role'] == 'system':
@@ -119,7 +119,7 @@ class Gemini(LLM):
         start = time.time()
         
         system_instruction = None
-        print(self.model_name)
+        # print(self.model_name)
 
         contents = []
         if isinstance(messages, list) and isinstance(messages[0], dict):
@@ -177,12 +177,10 @@ class Gemini(LLM):
             response = self.client.models.generate_content(model = self.model_name, 
                                                         contents = contents, 
                                                         config=config)
-                                                            
-                                                        
-            print(response.usage_metadata)
+                                                                                                           
             
             end = time.time()
-            logging.info(f"Completion time of {self.model_name}: {end - start}s")
+            logging.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
             
             if count_tokens:
                 return {
@@ -246,25 +244,40 @@ class ClientGemini:
         
 
 
-class RotateGemini:
+class RotateGemini(LLM):
     """ 
     Using queue to call Gemini models in a round-robin fashion
     """
+    # Singleton instance
+    _instance = None
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(RotateGemini, cls).__new__(cls)
+        return cls._instance
+
     def __init__(self, model_name = 'gemini-2.0-flash', api_keys: list[str] = None, rpm: int = 15,  **kwargs):
-        self.model_name = model_name
-        if not api_keys:
-            api_keys = get_all_api_key('GEMINI_API_KEY')
-        self.__api_keys = api_keys
-        assert len(self.__api_keys) > 0, "No api keys found"
+        
+        # Check if the instance has already been initialized
+        if not hasattr(self, '_initialized'):
+            self._initialized = True
+            super().__init__(model_name=model_name)
 
-        # Randomize the api_keys
-        random.shuffle(self.__api_keys)
+            # Normal init
+            self.model_name = model_name
+            if not api_keys:
+                api_keys = get_all_api_key('GEMINI_API_KEY')
+            self.__api_keys = api_keys
+            assert len(self.__api_keys) > 0, "No api keys found"
 
-        self.queue = deque()
-        for api_key in api_keys:
-            self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, igrone_quota = False, **kwargs))
+            # Randomize the api_keys
+            random.shuffle(self.__api_keys)
 
-        self.len_queue = len(self.queue)
+            self.queue = deque()
+            for api_key in api_keys:
+                self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, igrone_quota = False, **kwargs))
+
+            self.len_queue = len(self.queue)
 
         
     def try_request(self, client,  **kwargs):
@@ -280,10 +293,17 @@ class RotateGemini:
         client = self.queue.popleft()
         count = 0
         max_count = len(self.queue) * 2
+
+        assert len(self.queue) != self.len_queue, "Client leakage"
+
         while client.check_max_rpm():
             self.queue.append(client) # Add back to the queue
             client = self.queue.popleft() # Get the next client
             count += 1
+
+            if self.len_queue == 1:
+                break
+
             if count % len(self.queue) == 0:
                 logging.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
                 time.sleep(30)

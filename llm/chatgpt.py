@@ -44,7 +44,7 @@ class OpenAIWrapper(LLM):
         self.ignore_quota = igrone_quota
 
         
-    def stream(self, messages, **kwargs):
+    def stream(self, messages, temperature = 0.6, **kwargs):
         if self.multimodal:
             messages = convert_to_multimodal_format(messages)
 
@@ -52,6 +52,7 @@ class OpenAIWrapper(LLM):
             completion = self.client.chat.completions.create(
                 model = self.model_name,
                 messages = messages,
+                temperature=temperature,
                 stream = True,
                 **kwargs
             )
@@ -128,7 +129,7 @@ class ChatGPT(LLM):
         self.multimodal = multimodal
         self.ignore_quota = ignore_quota
         
-    def stream(self, messages, **kwargs):
+    def stream(self, messages, temperature = 0.6, **kwargs):
         if self.multimodal:
             messages = convert_to_multimodal_format(messages)
 
@@ -136,6 +137,7 @@ class ChatGPT(LLM):
         completion = self.client.chat.completions.create(
             model = self.model_name,
             messages = messages,
+            temperature=temperature,
             stream = True,
             stream_options={"include_usage": True},
             **kwargs
@@ -177,7 +179,7 @@ class ChatGPT(LLM):
             
             response = completion.choices[0].message
             
-            print(completion.usage)
+            logging.info(completion.usage)
             self.input_token += completion.usage.prompt_tokens
             self.output_token += completion.usage.completion_tokens
             end = time.time()
@@ -232,7 +234,7 @@ class ChatGPT(LLM):
 
         for i, batch in enumerate(list_messages):
             if i % sleep_step == 0 and i != 0 and sleep_time != 0:
-                print(f"Sleeping for {sleep_time} seconds")
+                logging.info(f"Sleeping for {sleep_time} seconds")
                 time.sleep(sleep_time)
             batch_input_file = self.client.files.create(file=open(f'process/process-{prefix}-{i}.jsonl', 'rb'), purpose='batch')
             
@@ -245,7 +247,7 @@ class ChatGPT(LLM):
                 "description": f"batch_{i}"
                 }
             )
-            print(f"Batch {i} created")
+            logging.info(f"Batch {i} created")
             with open(f'batch/batch-{prefix}.jsonl', 'a', encoding='utf-8') as file:
                 file.write(json.dumps({"id": batch_job.id}))
                 file.write('\n')
@@ -260,7 +262,7 @@ class ChatGPT(LLM):
                     batch = self.retrieve(batch_id)
 
 
-                    print(f"Batch {batch_id} status: {batch.status}")
+                    logging.info(f"Batch {batch_id} status: {batch.status}")
                     batch_ids.append({
                         "id": batch_id,
                         "status": batch.status
@@ -271,7 +273,7 @@ class ChatGPT(LLM):
         batch_ids = []
         batches = self.client.batches.list()
         for batch in batches:
-                print(f"Batch {batch.id} status: {batch.status}")
+                logging.info(f"Batch {batch.id} status: {batch.status}")
                 batch_ids.append({
                     "id": batch.id,
                     "status": batch.status
@@ -352,18 +354,29 @@ class ClientOpenAIWrapper:
     
 
 class RotateOpenAIWrapper:
-    def __init__(self, host: str, model_name: str, api_keys: list[str] = None, api_prefix = None, rpm: int = 10, **kwargs):
-        self.model_name = model_name
-        if not api_keys:
-            api_keys = get_all_api_key('GEMINI_API_KEY')
-        self.__api_keys = api_keys
-        assert len(self.api_keys) > 0, "No api keys found"
 
-        # Randomize the api_keys
-        random.shuffle(self.__api_keys)
-        self.queue = deque()
-        for api_key in self.__api_keys:
-            self.queue.append(OpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
+    # Singleton instance
+    _instance = None
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super(RotateOpenAIWrapper, cls).__new__(cls)
+        return cls._instance
+
+    def __init__(self, host: str, model_name: str, api_keys: list[str] = None, api_prefix = None, rpm: int = 10, **kwargs):
+        if not hasattr(self, '_initialized'):  # Ensure __init__ is only called once
+            self._initialized = True
+            self.model_name = model_name
+            if not api_keys:
+                api_keys = get_all_api_key('GEMINI_API_KEY')
+            self.__api_keys = api_keys
+            assert len(self.api_keys) > 0, "No api keys found"
+
+            # Randomize the api_keys
+            random.shuffle(self.__api_keys)
+            self.queue = deque()
+            for api_key in self.__api_keys:
+                self.queue.append(OpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
 
     def try_request(self, client,  **kwargs):
         try:

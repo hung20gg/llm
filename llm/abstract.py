@@ -10,9 +10,15 @@ class LLM:
     
     def __call__(self, message, **kwargs) -> str:
         raise NotImplementedError()
+
+    def invoke(self, message, **kwargs):
+        self.__call__(message, **kwargs)
     
     def stream(self, message, **kwargs):
         raise NotImplementedError()
+    
+    def generate(self, message, **kwargs):
+        self.stream(message, **kwargs)
     
     def batch_call(self, messages, **kwargs):
         raise NotImplementedError()

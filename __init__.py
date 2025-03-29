@@ -1,5 +1,6 @@
 from .llm.gemini import Gemini, RotateGemini
 from .llm.chatgpt import ChatGPT, OpenAIWrapper
+from .llm.vllm import vLLM
 import os
 
 import logging
