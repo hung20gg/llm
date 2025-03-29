@@ -26,7 +26,7 @@ logging.basicConfig(
       
 class Gemini(LLM):
     def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, **kwargs):
-        super().__init__()
+        super().__init__(model_name=model_name)
         self.model_name = model_name
         self.model_type = 'gemini'
         
@@ -260,13 +260,14 @@ class RotateGemini:
         self.model_name = model_name
         if not api_keys:
             api_keys = get_all_api_key('GEMINI_API_KEY')
-        self.api_keys = api_keys
+        self.__api_keys = api_keys
+        assert len(self.__api_keys) > 0, "No api keys found"
 
         # Randomize the api_keys
-        self.api_keys = random.shuffle(self.api_keys)
+        random.shuffle(self.__api_keys)
 
         self.queue = deque()
-        for api_key in api_keys:
+        for api_key in self.__api_keys:
             self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
 
         
@@ -336,4 +337,7 @@ class RotateGemini:
         return client.stream(messages = messages, **kwargs)
              
     def __repr__(self):
-        return f"RoutingGemini(model_name={self.model_name}, api_key={self.api_key}, random"
+        return f"RoutingGemini(model_name={self.model_name}, clients={len(self.__api_keys)})"
+
+    def __str__(self):
+        return f"RoutingGemini(model_name={self.model_name}, clients={len(self.__api_keys)})"

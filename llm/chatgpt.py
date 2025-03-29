@@ -29,7 +29,7 @@ def output_with_usage(response, usage, count_tokens=False):
 
 class OpenAIWrapper(LLM):
     def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, **kwargs):
-        super().__init__()
+        super().__init__(model_name=model_name)
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
@@ -103,7 +103,7 @@ class OpenAIWrapper(LLM):
     
 class ChatGPT(LLM):
     def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, multimodal = False, **kwargs):
-        super().__init__()
+        super().__init__(model_name=model_name)
         self.model_name = model_name
         self.engine = engine
 
@@ -296,3 +296,129 @@ class ChatGPT(LLM):
     def retrieve(self, batch_id):
         return self.client.batches.retrieve(batch_id)
     
+
+from collections import deque
+
+class ClientOpenAIWrapper:
+    def __init__(self, host: str, model_name: str, api_key: str, rpm: int, **kwargs):
+        self.llm = OpenAIWrapper(model_name=model_name, api_key=api_key, **kwargs)
+        self.current_request = 0
+        self.rpm = rpm
+        self.request_time = deque(maxlen=rpm)
+
+    def check_max_rpm(self):
+        current_time = time.time() 
+        last_1_min = current_time - 60
+        if len(self.request_time) == self.rpm:
+            begin_request = self.request_time[0]
+
+            # Check if the first request is older than 1 min
+            if begin_request <= last_1_min:
+                while len(self.request_time) > 0 and self.request_time[0] <= last_1_min:
+                    self.request_time.popleft()
+                    if len(self.request_time) == 0:
+                        self.request_time.append(current_time)
+                        return False
+                
+                self.request_time.append(current_time)
+                return False
+            else:
+                return True
+        else:
+            self.request_time.append(current_time)
+            return False
+
+    def __call__(self, *args, **kwargs):
+        return self.llm(*args, **kwargs)
+    
+    def stream(self,*args, **kwargs):
+        return self.llm.stream(*args, **kwargs)
+
+    def __str___(self):
+        return f"ClientOpenAIWarrper(model_name={self.llm.model_name}, rpm={self.rpm})"
+    
+
+class RotateOpenAIWrapper:
+    def __init__(self, host: str, model_name: str, api_keys: list[str] = None, api_prefix = None, rpm: int = 10, **kwargs):
+        self.model_name = model_name
+        if not api_keys:
+            api_keys = get_all_api_key('GEMINI_API_KEY')
+        self.__api_keys = api_keys
+        assert len(self.api_keys) > 0, "No api keys found"
+
+        # Randomize the api_keys
+        random.shuffle(self.__api_keys)
+        self.queue = deque()
+        for api_key in self.__api_keys:
+            self.queue.append(OpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
+
+    def try_request(self, client,  **kwargs):
+        try:
+            print(client)
+            return client( **kwargs), True
+        except Exception as e:
+            logging.error(f"Error: {e}")
+            return '', False
+
+    def __call__(self, messages, **kwargs):
+        # Check if the first client in the queue has reached the maximum rpm
+        client = self.queue.popleft()
+        count = 0
+        max_count = len(self.queue) * 2
+        while client.check_max_rpm():
+            self.queue.append(client) # Add back to the queue
+            client = self.queue.popleft() # Get the next client
+            count += 1
+            if count % len(self.queue) == 0:
+                logging.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
+                time.sleep(30)
+            if count > max_count:
+                break
+        
+        # If the client has reached the maximum rpm, add back to the queue and try to make a request
+        self.queue.append(client)
+
+        response, success = self.try_request(client, messages = messages, **kwargs)
+        
+        tries = 0
+        while not success:
+            client = self.queue.popleft()
+
+            # Check if the client has reached the maximum rpm
+            if client.check_max_rpm():
+                self.queue.append(client)
+                continue
+
+            # If the client has reached the maximum rpm, add back to the queue and try to make a request
+            response, success = self.try_request(client, messages = messages, **kwargs)
+            tries += 1
+            time.sleep(min(tries, 10))
+            self.queue.append(client)
+            if tries > len(self.queue) * 2:
+                logging.error("All clients have failed to make a request")
+                return ''
+            
+        return response
+        
+    def stream(self, messages, **kwargs):
+        client = self.queue.popleft()
+        count = 0
+        max_count = len(self.queue) * 2
+        while client.check_max_rpm():
+            self.queue.append(client)
+            client = self.queue.popleft()
+            count += 1
+            if count % len(self.queue) == 0:
+                logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                time.sleep(10)
+            if count > max_count:
+                break
+
+        self.queue.append(client)
+        return client.stream(messages = messages, **kwargs)
+             
+    def __repr__(self):
+        return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self.__api_keys)})"
+    
+    def __str__(self):
+        return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self.__api_keys)})"

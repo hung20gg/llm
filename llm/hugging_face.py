@@ -27,7 +27,7 @@ class CoreLLMs(LLM):
                 device = None,
                 **kwargs
                 ) -> None:
-        super().__init__()
+        super().__init__(model_name=model_name)
         if device is not None:
             self.device = device
         else:
