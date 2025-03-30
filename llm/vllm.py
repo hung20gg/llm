@@ -19,7 +19,7 @@ logging.basicConfig(
 
 class vLLM(LLM):
     
-    def __init__(self, model_name, multimodal = False, **kwargs):
+    def __init__(self, model_name: str, lora_path: str = None, multimodal = False, **kwargs):
         try:
             # Lazy import of the vllm library
             from vllm import LLM as _vLLM, SamplingParams
@@ -33,7 +33,23 @@ class vLLM(LLM):
 
         self.model_name = model_name
         self.multimodal = multimodal
-        self.client = LLM(model_name=model_name, **kwargs)
+
+        if os.path.exists(lora_path):
+            logging.info(f"Loading LoRA model from {lora_path}")
+        else:
+            logging.warning(f"LoRA model path {lora_path} does not exist. Using default model.")
+            lora_path = None
+
+        
+        if lora_path:
+
+            from vllm.lora.request import LoRARequest
+
+            self.client = _vLLM(model_name=model_name, enable_lora = True, max_lora_rank=64, **kwargs)
+            self.lora_request = LoRARequest("vi_llm", 1, lora_path)
+        else:
+            self.client = _vLLM(model_name=model_name, **kwargs)
+            self.lora_request = None
 
     def __call__(self, messages, temperature = 0.6, **kwargs):
         if self.multimodal:
@@ -45,6 +61,7 @@ class vLLM(LLM):
         output = self.client.chat(
             messages,
             sampling_params,
+            lora_request=self.lora_request,
         )
 
         generated_text = output.outputs[0].text
@@ -67,6 +84,7 @@ class vLLM(LLM):
         outputs = self.client.chat(
             messages,
             sampling_params,
+            lora_request=self.lora_request,
             use_tqdm=True
         )
 
