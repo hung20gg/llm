@@ -1,5 +1,5 @@
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig, TextIteratorStreamer
-from peft import PeftModel 
+from peft import PeftModel, LoraConfig
 import torch
 import gc
 from threading import Thread
@@ -46,9 +46,8 @@ class HuggingFaceLLM(LLM):
 
                 self.generation_args = {
                     "max_new_tokens": 4096,
-                    "temperature": 0.3,
-                    "top_p": 0.9,
-                    "do_sample": True,
+                    "temperature": 0.6,
+                    "top_p": 0.8,
                 }
         else:
             self.generation_args = generation_args
@@ -86,7 +85,8 @@ class HuggingFaceLLM(LLM):
             self.model = PeftModel.from_pretrained(
                 self.model,
                 self.lora_name,
-                device_map=self.device
+                device_map=self.device,
+                torch_dtype=torch.bfloat16,
             )
 
 
@@ -96,7 +96,8 @@ class HuggingFaceLLM(LLM):
             model = self.model,
             tokenizer = self.tokenizer,
             trust_remote_code=True,
-            device_map=self.device
+            device_map=self.device,
+
         )
         
     def _delete_agent(self):
@@ -129,6 +130,8 @@ class HuggingFaceLLM(LLM):
                 messages = non_sys_prompt_messages
             else:
                 messages = convert_non_system_prompts(messages)
+
+        print(f"Messages: {messages}")
         with torch.no_grad():
             if not batch_process:
                 answer = self.pipe(messages, **self.generation_args)[0]['generated_text'][-1]['content']
@@ -191,7 +194,8 @@ class HuggingFaceLLM(LLM):
             # Chat format - use tokenizer's chat template
             prompt = self.tokenizer.apply_chat_template(
                 messages, 
-                return_tensors="pt"
+                return_tensors="pt",
+                add_generation_prompt=True
             ).to(self.device)
             
             # Create explicit attention mask (1 for tokens to attend to, 0 for padding)

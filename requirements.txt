@@ -1,0 +1,8 @@
+torch
+torchvision
+transformers
+datasets
+peft
+openai
+google-genai
+pillow
