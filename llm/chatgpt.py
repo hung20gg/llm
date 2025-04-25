@@ -368,9 +368,9 @@ class RotateOpenAIWrapper:
             self._initialized = True
             self.model_name = model_name
             if not api_keys:
-                api_keys = get_all_api_key('GEMINI_API_KEY')
+                api_keys = get_all_api_key(api_prefix)
             self.__api_keys = api_keys
-            assert len(self.api_keys) > 0, "No api keys found"
+            assert len(self.__api_keys) > 0, "No api keys found"
 
             # Randomize the api_keys
             random.shuffle(self.__api_keys)
