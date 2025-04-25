@@ -316,7 +316,7 @@ from collections import deque
 
 class ClientOpenAIWrapper:
     def __init__(self, host: str, model_name: str, api_key: str, rpm: int, **kwargs):
-        self.llm = OpenAIWrapper(model_name=model_name, api_key=api_key, **kwargs)
+        self.llm = OpenAIWrapper(host = host, model_name=model_name, api_key=api_key, **kwargs)
         self.current_request = 0
         self.rpm = rpm
         self.request_time = deque(maxlen=rpm)
@@ -376,7 +376,7 @@ class RotateOpenAIWrapper:
             random.shuffle(self.__api_keys)
             self.queue = deque()
             for api_key in self.__api_keys:
-                self.queue.append(OpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
+                self.queue.append(ClientOpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
 
     def try_request(self, client,  **kwargs):
         try:
