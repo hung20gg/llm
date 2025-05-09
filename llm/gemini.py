@@ -248,36 +248,28 @@ class RotateGemini(LLM):
     """ 
     Using queue to call Gemini models in a round-robin fashion
     """
-    # Singleton instance
-    _instance = None
-    
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(RotateGemini, cls).__new__(cls)
-        return cls._instance
 
     def __init__(self, model_name = 'gemini-2.0-flash', api_keys: list[str] = None, rpm: int = 15,  **kwargs):
         
+        super().__init__(model_name=model_name)
+
         # Check if the instance has already been initialized
-        if not hasattr(self, '_initialized'):
-            self._initialized = True
-            super().__init__(model_name=model_name)
+        self._initialized = True
+        # Normal init
+        self.model_name = model_name
+        if not api_keys:
+            api_keys = get_all_api_key('GEMINI_API_KEY')
+        self.__api_keys = api_keys
+        assert len(self.__api_keys) > 0, "No api keys found"
 
-            # Normal init
-            self.model_name = model_name
-            if not api_keys:
-                api_keys = get_all_api_key('GEMINI_API_KEY')
-            self.__api_keys = api_keys
-            assert len(self.__api_keys) > 0, "No api keys found"
+        # Randomize the api_keys
+        random.shuffle(self.__api_keys)
 
-            # Randomize the api_keys
-            random.shuffle(self.__api_keys)
+        self.queue = deque()
+        for api_key in api_keys:
+            self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, igrone_quota = False, **kwargs))
 
-            self.queue = deque()
-            for api_key in api_keys:
-                self.queue.append(ClientGemini(model_name=model_name, api_key=api_key, rpm = rpm, igrone_quota = False, **kwargs))
-
-            self.len_queue = len(self.queue)
+        self.len_queue = len(self.queue)
 
         
     def try_request(self, client,  **kwargs):

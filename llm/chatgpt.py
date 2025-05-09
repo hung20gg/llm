@@ -355,28 +355,20 @@ class ClientOpenAIWrapper:
 
 class RotateOpenAIWrapper:
 
-    # Singleton instance
-    _instance = None
-    
-    def __new__(cls, *args, **kwargs):
-        if cls._instance is None:
-            cls._instance = super(RotateOpenAIWrapper, cls).__new__(cls)
-        return cls._instance
 
     def __init__(self, host: str, model_name: str, api_keys: list[str] = None, api_prefix = None, rpm: int = 10, **kwargs):
-        if not hasattr(self, '_initialized'):  # Ensure __init__ is only called once
-            self._initialized = True
-            self.model_name = model_name
-            if not api_keys:
-                api_keys = get_all_api_key(api_prefix)
-            self.__api_keys = api_keys
-            assert len(self.__api_keys) > 0, "No api keys found"
+        self._initialized = True
+        self.model_name = model_name
+        if not api_keys:
+            api_keys = get_all_api_key(api_prefix)
+        self.__api_keys = api_keys
+        assert len(self.__api_keys) > 0, "No api keys found"
 
-            # Randomize the api_keys
-            random.shuffle(self.__api_keys)
-            self.queue = deque()
-            for api_key in self.__api_keys:
-                self.queue.append(ClientOpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
+        # Randomize the api_keys
+        random.shuffle(self.__api_keys)
+        self.queue = deque()
+        for api_key in self.__api_keys:
+            self.queue.append(ClientOpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
 
     def try_request(self, client,  **kwargs):
         try:
