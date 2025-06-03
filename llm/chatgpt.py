@@ -130,8 +130,8 @@ class ChatGPT(LLM):
         self.ignore_quota = ignore_quota
         
     def stream(self, messages, temperature = 0.6, **kwargs):
-        if self.multimodal:
-            messages = convert_to_multimodal_format(messages)
+        
+        convert_to_multimodal_format(messages)
 
         start = time.time()
         completion = self.client.chat.completions.create(
@@ -154,8 +154,7 @@ class ChatGPT(LLM):
 
     def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, tools = None, **kwargs):
         
-        if self.multimodal:
-            messages = convert_to_multimodal_format(messages)
+        messages = convert_to_multimodal_format(messages)
 
         try:
             start = time.time()

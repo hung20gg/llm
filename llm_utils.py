@@ -183,13 +183,25 @@ def convert_to_multimodal_format(messages, has_system=True):
         elif isinstance(content, list):
             new_content = []
             for c in content:
-                if isinstance(c, dict) and c.get('type') == 'image':
-                    new_content.append(
-                        {
-                            'type': 'image_url',
-                            'image_url': {'url': f"data:image/png;base64,{pil_to_base64(c['image'])}"}
-                        }
-                    )
+                if isinstance(c, dict) and c.get('type') in ('image', 'image_url'):
+                    image_url = ""
+                    # Add check if c['image'] is a image path or PIL image
+                    if isinstance(c['image'], str):
+                        if os.path.exists(c['image']):
+                            image_url = f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"
+                        elif c['image'].startswith('data:image'):
+                            image_url = c['image']
+                            
+                    elif isinstance(c['image'], Image.Image):
+                        image_url = f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"
+                    
+                    if image_url != "":        
+                        new_content.append(
+                            {
+                                'type': 'image_url',
+                                'image_url': {'url': f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"}
+                            }
+                        )
                     
                 else:
                     new_content.append(c)
