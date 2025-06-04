@@ -1,10 +1,17 @@
 import json
-from ..llm_utils import (
+
+import os 
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
+
+
+from llm.llm_utils import (
     get_all_api_key, 
     convert_to_multimodal_format, 
     list_of_messages_to_batch_chatgpt
     )
-from .abstract import LLM
+from llm.llm.abstract import LLM
 import time
 import logging
 

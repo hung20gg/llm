@@ -2,12 +2,17 @@ import json
 import logging
 import time
 
-from ..llm_utils import (
+import os 
+import sys
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
+
+from llm.llm_utils import (
     get_all_api_key, 
     pil_to_base64, 
     convert_to_gemini_format
     )
-from .abstract import LLM
+from llm.llm.abstract import LLM
 
 from google import genai
 import random
