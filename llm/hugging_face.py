@@ -5,7 +5,7 @@ import gc
 from threading import Thread
 
 import json
-from ..llm_utils import *
+from ..llm_utils import convert_non_system_prompts
 from .abstract import LLM
 import time
 import logging
