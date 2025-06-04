@@ -12,14 +12,46 @@ from PIL import Image
 import base64
 from io import BytesIO
 
-def pil_to_base64(image):
+def pil_to_base64(image, format="JPEG"):
+    """
+    Convert PIL image, file path, or numpy array to base64 string.
+    Handles different image modes including RGBA, LA and P.
+    
+    Args:
+        image: PIL Image, file path, or numpy array
+        format: Output format (default: JPEG)
+        
+    Returns:
+        Base64 encoded string of the image
+    """
     if isinstance(image, str):
         image = Image.open(image)
     elif isinstance(image, np.ndarray):
         image = Image.fromarray(image)
 
+    # Handle format compatibility issues
+    if format.upper() == "JPEG":
+        # JPEG doesn't support transparency
+        if image.mode == 'RGBA':
+            # Create a white background and paste the image using alpha as mask
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[3])
+            image = background
+        elif image.mode == 'LA':
+            # Grayscale with alpha - use alpha as mask with white background
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            background.paste(image, mask=image.split()[1])
+            image = background
+        elif image.mode == 'P':
+            # Convert palette mode to RGB
+            image = image.convert('RGB')
+        elif image.mode != 'RGB':
+            # Convert any other modes to RGB
+            image = image.convert('RGB')
+    
+    # Save to buffer
     buffered = BytesIO()
-    image.save(buffered, format="JPEG")  # Change format if needed
+    image.save(buffered, format=format)
     return base64.b64encode(buffered.getvalue()).decode()
 
 def img_to_pil(image):
