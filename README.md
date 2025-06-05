@@ -81,3 +81,41 @@ GEMINI_API_KEY_1={key_1}
 GEMINI_API_KEY_2={key_2}
 ...
 ``` 
+
+### Image input
+Image can be either path, Image.Image object or base64
+
+```python
+from llm import ChatGPT
+
+llm = ChatGPT(model_name='gpt-4.1-mini')
+
+message = [
+  {
+    "role":"user",
+    "content":[
+      {
+        'type':'text',
+        'text': 'Where is this'
+      },
+      {
+        'type': 'image'
+        'image_url': ...
+      }
+    ]
+  }
+]
+
+response = llm(message)
+```
+
+### Logger
+You can now use logger, and it will automatically store in db
+
+```python
+from llm.logger.log_mongodb import  LLMLogMongoDB
+from llm import ChatGPT
+
+llm_ = ChatGPT(model_name='gpt-4.1-mini')
+llm = LLMLogMongoDB(llm)
+```

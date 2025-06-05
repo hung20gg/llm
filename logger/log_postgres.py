@@ -6,6 +6,8 @@ sys.path.append(os.path.join(current_dir, '..', '..'))
 import psycopg2
 import psycopg2.extras  # Add this import for Json functionality
 import time
+from uuid import uuid4
+from PIL import Image
 
 from llm.logger.log_base import LogBase
 
@@ -42,13 +44,28 @@ class LLMLogPostgres(LogBase):
                 CREATE TABLE IF NOT EXISTS llm_logs (
                     id SERIAL PRIMARY KEY,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    image_path TEXT,
                     messages JSONB NOT NULL,
                     model_name VARCHAR(255),
                     run_name VARCHAR(255),
                     tag VARCHAR(255)
                 )
             """)
+
+            self.cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_llm_logs_timestamp ON llm_logs (timestamp);
+            """)
+
+            self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS images (
+                    id SERIAL PRIMARY KEY,
+                    log_id INTEGER REFERENCES llm_logs(id) ON DELETE CASCADE,
+                    image_path VARCHAR(1024) NOT NULL,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_images_log_id ON images (log_id);
+            """)
+
             self.connection.commit()
         except Exception as e:
             print(f"Error initializing database: {e}")
@@ -65,7 +82,8 @@ class LLMLogPostgres(LogBase):
         except Exception as e:
             print(f"Error connecting to PostgreSQL database: {e}")
 
-    def log(self, messages: list[dict], image_path: str,  run_name: str = '', tag: str = ''):
+
+    def log(self, messages: list[dict], images_path: str|list[str],  run_name: str = '', tag: str = ''):
         """
         Log the messages and image path to the PostgreSQL database.
         
@@ -74,15 +92,36 @@ class LLMLogPostgres(LogBase):
         :param run_name: Name of the run.
         :param tag: Tag for the log entry.
         """
+        if isinstance(images_path, str):
+            images_path = [images_path]
+
+        flag_image = len(images_path) > 0
+        images = self.process_messages(messages, flag_image)
+        if len(images) > 0 and len(images_path) == 0:
+            images_path = images
+
         if not self.connection or self.connection.closed:
             self.connect()
             self._initialize_db()
 
         try:
+            # Insert messages into llm_logs table
             self.cursor.execute("""
-                INSERT INTO llm_logs (image_path, messages, model_name, run_name, tag)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (image_path, psycopg2.extras.Json(messages), self.model_name, run_name, tag))
+                INSERT INTO llm_logs (messages, model_name, run_name, tag)
+                VALUES (%s, %s, %s, %s)
+                RETURNING id
+            """, (psycopg2.extras.Json(messages), self.model_name, run_name, tag))
+            
+            # Get the ID of the inserted log entry
+            log_id = self.cursor.fetchone()[0]
+            
+            # Insert image paths into images table
+            if images_path and len(images_path) > 0:
+                for img_path in images_path:
+                    self.cursor.execute("""
+                        INSERT INTO images (log_id, image_path)
+                        VALUES (%s, %s)
+                    """, (log_id, img_path))
             self.connection.commit()
             print("Log entry added successfully")
         except Exception as e:

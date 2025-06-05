@@ -72,15 +72,24 @@ class LLMLogMongoDB(LogBase):
         except Exception as e:
             print(f"Error connecting to MongoDB database: {e}")
 
-    def log(self, messages: list[dict], image_path: str, run_name: str = '', tag: str = ''):
+    def log(self, messages: list[dict], images_path: str|list[str], run_name: str = '', tag: str = ''):
         """
         Log the messages and image path to the MongoDB database.
-        
-        :param image_path: Path to the image file.
+
+        :param images_path: Path to the image file(s).
         :param messages: List of messages to log.
         :param run_name: Name of the run.
         :param tag: Tag for the log entry.
         """
+
+        if isinstance(images_path, str):
+            images_path = [images_path]
+
+        flag_image = len(images_path) > 0
+        images = self.process_messages(messages, flag_image)
+        if len(images) > 0 and len(images_path) == 0:
+            images_path = images
+            
         if not self.client:
             self.connect()
             self._initialize_db()
@@ -88,7 +97,7 @@ class LLMLogMongoDB(LogBase):
         try:
             document = {
                 "timestamp": datetime.now(),
-                "image_path": image_path,
+                "images_path": images_path,
                 "messages": messages,
                 "model_name": self.model_name,
                 "run_name": run_name,
