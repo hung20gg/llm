@@ -3,6 +3,8 @@ from .llm.chatgpt import ChatGPT, OpenAIWrapper, RotateOpenAIWrapper
 from .llm.vllm import vLLM
 from .llm.abstract import LLM
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 import logging
 
@@ -57,16 +59,31 @@ def get_llm_wrapper(model_name, **kwargs):
     if model_name.count(':') == 1:
         provider, model = model_name.split(':')
         logging.info(f"Using {provider} with model {model}")
+
+        system_prompt = True
+        non_sys_prompt_model = ['llama3.2', 'llama-3.2', 'gemma']
+        for key in non_sys_prompt_model:
+            if key in model.lower():
+                print(f"Disabling system prompt for model {model}")
+                system_prompt = False
+                break
         
-        if provider in ['openai', 'gemini', 'google']:
-            return _get_llm_wrapper(model_name=model, **kwargs)
+        if provider in ['openai']:
+            logging.info(f"Using ChatGPT with model {model}")
+            return ChatGPT(model_name=model, **kwargs)
         
+        elif provider in ['gemini', 'google']:
+            logging.info(f"Using Gemini with model {model}")
+            return Gemini(model_name=model, random_key='exp' in model, system=system_prompt, **kwargs)
+
         host, api_prefix = _get_host_api_prefix(provider, **kwargs)
+        api_key = os.getenv(api_prefix, None)
 
         return OpenAIWrapper(
             model_name=model,
             host=host,
-            api_prefix=api_prefix,
+            api_key=api_key,
+            system=system_prompt,
             **kwargs
         )
     else:

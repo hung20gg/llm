@@ -5,11 +5,11 @@ import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
 
-
 from llm.llm_utils import (
     get_all_api_key, 
     convert_to_multimodal_format, 
-    list_of_messages_to_batch_chatgpt
+    list_of_messages_to_batch_chatgpt,
+    convert_non_system_prompts
     )
 from llm.llm.abstract import LLM
 import time
@@ -39,7 +39,7 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, igrone_quota = True, **kwargs):
+    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, igrone_quota = True, system = True, **kwargs):
         super().__init__(model_name=model_name)
         self.host = host
         self.model_name = model_name
@@ -53,11 +53,17 @@ class OpenAIWrapper(LLM):
         self.client = OpenAI(api_key=api_key, base_url=host)
         self.multimodal = multimodal
         self.ignore_quota = igrone_quota
+        self.system = system
 
-        
     def stream(self, messages, temperature = 0.6, **kwargs):
+        
+
+        # Disable system prompt (for gemma or llama 3.2)
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
         if self.multimodal:
-            messages = convert_to_multimodal_format(messages)
+            messages = convert_to_multimodal_format(messages)    
 
         try:
             completion = self.client.chat.completions.create(
@@ -83,6 +89,9 @@ class OpenAIWrapper(LLM):
     
     def __call__(self, messages, temperature = 0.6, response_format=None, count_tokens=False):
         
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
         if self.multimodal:
             messages = convert_to_multimodal_format(messages)
 

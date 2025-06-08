@@ -210,6 +210,19 @@ def convert_to_multimodal_format(messages, has_system=True):
     for i, item in enumerate(messages):
         role = item["role"]
         content = item["content"]
+
+        if role == 'system':
+            text_content = ''
+            if isinstance(content, str):
+                content = [{'type': 'text', 'text': content}]
+            elif isinstance(content, list):
+                for c in content:
+                    if c.get('type') == 'text':
+                        text_content += c['text'] + '\n'
+                        
+            new_messages.append({"role": role, "content": content.strip()})
+            continue
+
         if isinstance(content, str):
             new_messages.append({"role": role, "content": [{'type':'text', 'text':content}]})
         elif isinstance(content, list):
@@ -249,10 +262,17 @@ def convert_non_system_prompts(messages):
     new_messages = []
     if messages[0]['role'] == 'system':
         system_prompt = messages[0]['content']
+
         for i in range(1,len(messages)):
             message = messages[i]['content']
             if i == 1:
-                message = system_prompt + '\n' + message
+                if isinstance(message, str):
+                    message = system_prompt + '\n' + message
+                elif isinstance(message, list):
+                    for part in message:
+                        if part.get('type') == 'text':
+                            part['text'] = system_prompt + '\n' + part['text']
+            
             new_messages.append({"role": messages[i]['role'], "content": message})
         return new_messages
     return messages
@@ -313,13 +333,8 @@ console.log(x);
 ```
     """
     
-    json_sample = """
-    ```json
-    {
-        "next_step": ["SELECT * FROM table_name WHERE condition == \\"text\\";"]
-    }
-    ```
+    code_sample = """
+Okay, I understand. The user wants me to create a bar chart based on the provided radar chart data, with the title "Financial Sector Performance". Since the previous code is `None`, I will generate the code from scratch. I\'ll need to extract the data from the image to create the bar chart. From the image, I can approximate the values for each sector in Q1, Q2, Q3, and Q5. I\'ll use these approximate values to create the bar chart.\n\nHere\'s the Python code using Matplotlib to generate the bar chart:\n\n```python\nimport matplotlib.pyplot as plt\nimport numpy as np\n\n# Data extracted from the radar chart image (approximate values)\nsectors = [\'Stock Market\', \'Real Estate\', \'Cryptocurrency\', \'Commodities\']\nq1 = [2000, 4000, 1000, 3000]\nq2 = [6000, 8000, 5000, 4000]\nq3 = [3000, 5000, 2000, 1000]\nq5 = [1000, 2000, 500, 1500]\n\n# Set the width of the bars\nbar_width = 0.2\n\n# Set the positions of the bars on the x-axis\nr1 = np.arange(len(sectors))\nr2 = [x + bar_width for x in r1]\nr3 = [x + bar_width for x in r2]\nr4 = [x + bar_width for x in r3]\n\n# Create the bar chart\nplt.figure(figsize=(10, 6))\nplt.bar(r1, q1, color=\'blue\', width=bar_width, edgecolor=\'grey\', label=\'Q1\')\nplt.bar(r2, q2, color=\'orange\', width=bar_width, edgecolor=\'grey\', label=\'Q2\')\nplt.bar(r3, q3, color=\'green\', width=bar_width, edgecolor=\'grey\', label=\'Q3\')\nplt.bar(r4, q5, color=\'red\', width=bar_width, edgecolor=\'grey\', label=\'Q5\')\n\n# Add labels and title
     """
     
-    print(get_json_from_text_response(json_sample))
     print(get_code_from_text_response(code_sample))

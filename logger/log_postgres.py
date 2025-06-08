@@ -140,6 +140,6 @@ if __name__ == "__main__":
         {'role': 'user', 'content': 'Hello, how are you?'},
         {'role': 'assistant', 'content': 'I am fine, thank you!'}
     ]
-    
-    logger.log(image_path='path/to/test_image.png', messages=messages, run_name='test_run', tag='test_tag')
+
+    logger.log(image_path='../assets/spiderman.jpg', messages=messages, run_name='test_run', tag='test_tag')
     print("Log entry created successfully.")

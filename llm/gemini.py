@@ -10,7 +10,8 @@ sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directo
 from llm.llm_utils import (
     get_all_api_key, 
     pil_to_base64, 
-    convert_to_gemini_format
+    convert_to_gemini_format,
+    convert_non_system_prompts
     )
 from llm.llm.abstract import LLM
 
@@ -34,7 +35,7 @@ logging.basicConfig(
 )  
       
 class Gemini(LLM):
-    def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, igrone_quota = True, **kwargs):
+    def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, igrone_quota = True, system = True, **kwargs):
         super().__init__(model_name=model_name)
         self.model_name = model_name
         self.model_type = 'gemini'
@@ -70,8 +71,11 @@ class Gemini(LLM):
         self.system_instruction = None
         self.chat_session = None
         self.ignore_quota = igrone_quota
+        self.system = system
             
     def stream(self, messages, temperature=0.8, **config):
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
         
         system_instruction = None
         if len(messages) > 0 and messages[0]['role'] == 'system':
@@ -125,6 +129,9 @@ class Gemini(LLM):
         
     def __call__(self, messages, temperature=0.4, tools = [], count_tokens=False, **config):
         
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
         start = time.time()
         
         system_instruction = None
@@ -159,7 +166,8 @@ class Gemini(LLM):
 
         if bool_function:
             logging.info(f"Number of functions: {len(tools)}. Callables: {len(functions)}")
-
+            
+            
             config = types.GenerateContentConfig(
                 tools = functions,
                 system_instruction=system_instruction,
