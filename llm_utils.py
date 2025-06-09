@@ -215,12 +215,12 @@ def convert_to_multimodal_format(messages, has_system=True):
             text_content = ''
             if isinstance(content, str):
                 content = [{'type': 'text', 'text': content}]
-            elif isinstance(content, list):
-                for c in content:
-                    if c.get('type') == 'text':
-                        text_content += c['text'] + '\n'
-                        
-            new_messages.append({"role": role, "content": content.strip()})
+            # elif isinstance(content, list):
+            #     for c in content:
+            #         if c.get('type') == 'text':
+            #             text_content += c['text'] + '\n'
+            #
+            new_messages.append({"role": role, "content": content})
             continue
 
         if isinstance(content, str):
