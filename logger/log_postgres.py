@@ -95,7 +95,7 @@ class LLMLogPostgres(LogBase):
         if isinstance(images_path, str):
             images_path = [images_path]
 
-        flag_image = len(images_path) > 0
+        flag_image = len(images_path) == 0
         images = self.process_messages(messages, flag_image)
         if len(images) > 0 and len(images_path) == 0:
             images_path = images
