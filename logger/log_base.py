@@ -20,14 +20,13 @@ class LogBase:
 
         for message in messages:
             if isinstance(message['content'], list):
-                flag_image = False
+
                 text_content = ""
                 for content in message['content']:
                     if content['type'] == 'text':
                         text_content += content['text'] + " "
 
                     if content['type'] in ['image', 'image_url']:
-                        flag_image = True
                         if not isinstance(content[content['type']], str):
                             if isinstance(content[content['type']], Image.Image):
                                 if save_images:
