@@ -83,7 +83,7 @@ class LLMLogPostgres(LogBase):
             print(f"Error connecting to PostgreSQL database: {e}")
 
 
-    def log(self, messages: list[dict], images_path: str|list[str],  run_name: str = '', tag: str = ''):
+    def log(self, messages: list[dict], images_path: str|list[str] = None,  run_name: str = '', tag: str = ''):
         """
         Log the messages and image path to the PostgreSQL database.
         

@@ -44,7 +44,8 @@ class LogBase:
                                 raise ValueError("Unsupported image data type. Expected PIL Image or file path string.")
                         else:
                             images.append(content[content['type']])
-                        text_content += "<image>"
+                if '<image>' not in text_content:
+                    text_content = "<image>\n" + text_content
                 message['content'] = text_content.strip()
         return images
         

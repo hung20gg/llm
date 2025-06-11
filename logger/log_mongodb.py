@@ -14,8 +14,8 @@ global_db_config = {
     'port': int(os.getenv('MONGO_PORT', '27017')),
     'db_name': os.getenv('MONGO_DB', 'llm_logs'),
     'collection_name': os.getenv('MONGO_COLLECTION', 'logs'),
-    'username': os.getenv('MONGO_USER', 'mongodb'),
-    'password': os.getenv('MONGO_PASSWORD', '12345678'),
+    'username': os.getenv('MONGO_USER', None),
+    'password': os.getenv('MONGO_PASSWORD', None),
 }
 
 class LLMLogMongoDB(LogBase):
@@ -72,7 +72,7 @@ class LLMLogMongoDB(LogBase):
         except Exception as e:
             print(f"Error connecting to MongoDB database: {e}")
 
-    def log(self, messages: list[dict], images_path: str|list[str], run_name: str = '', tag: str = ''):
+    def log(self, messages: list[dict], images_path: str|list[str] = None, run_name: str = '', tag: str = ''):
         """
         Log the messages and image path to the MongoDB database.
 
@@ -82,17 +82,18 @@ class LLMLogMongoDB(LogBase):
         :param tag: Tag for the log entry.
         """
 
-        if isinstance(images_path, str):
-            images_path = [images_path]
+        if images_path is not None:
+            if isinstance(images_path, str):
+                images_path = [images_path]
 
-        flag_image = len(images_path) == 0
-        images = self.process_messages(messages, flag_image)
-        if len(images) > 0 and len(images_path) == 0:
-            images_path = images
-            
-        if not self.client:
-            self.connect()
-            self._initialize_db()
+            flag_image = len(images_path) == 0
+            images = self.process_messages(messages, flag_image)
+            if len(images) > 0 and len(images_path) == 0:
+                images_path = images
+                
+            if not self.client:
+                self.connect()
+                self._initialize_db()
 
         try:
             document = {
