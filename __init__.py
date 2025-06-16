@@ -51,6 +51,10 @@ def _get_host_api_prefix(provider, **kwargs):
         host = 'https://api.deepinfra.com/v1/openai'
         api_prefix = 'DEEPINFRA_API_KEY'
 
+    elif provider == 'vllm':
+        host = 'http://localhost:8000' if 'host' not in kwargs else kwargs['host']
+        api_prefix = 'VLLM_API_KEY' if 'api_prefix' not in kwargs else kwargs['api_prefix']
+
     return host, api_prefix
 
 
@@ -96,13 +100,19 @@ def get_rotate_llm_wrapper(model_name, **kwargs):
     if model_name.count(':') == 1:
         provider, model_name = model_name.split(':')
        
+    system_prompt = True
+    non_sys_prompt_model = ['llama3.2', 'llama-3.2', 'gemma']
+    for key in non_sys_prompt_model:
+        if key in model_name.lower():
+            print(f"Disabling system prompt for model {model_name}")
+            system_prompt = False
+            break
     
     if 'gemini' in model_name or provider in ['google', 'gemini']:
         logging.info(f"Using Rotate Gemini with model {model_name}")
-        return RotateGemini(model_name=model_name, random_key='exp' in model_name, **kwargs)
-    
+        return RotateGemini(model_name=model_name, random_key='exp' in model_name, system=system_prompt, **kwargs)
+
     else:
         logging.info(f"Using Rotate OpenAI Wrapper model: {model_name}")
         host, api_prefix = _get_host_api_prefix(provider, **kwargs)
-        return RotateOpenAIWrapper(model_name=model_name, host=host, api_prefix=api_prefix,  **kwargs)
- 
+        return RotateOpenAIWrapper(model_name=model_name, host=host, api_prefix=api_prefix, system=system_prompt, **kwargs)
