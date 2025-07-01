@@ -117,5 +117,5 @@ from llm.logger.log_mongodb import  LLMLogMongoDB
 from llm import ChatGPT
 
 llm_ = ChatGPT(model_name='gpt-4.1-mini')
-llm = LLMLogMongoDB(llm)
+llm = LLMLogMongoDB(llm_)
 ```
