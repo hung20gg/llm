@@ -147,7 +147,7 @@ def get_json_from_text_response(text_response, new_method=False):
         json_response = re.search(r"\{.*\}", text_response, re.DOTALL)
         if json_response:
             json_data = json_response.group(0)
-            return [check_json(json_data)]   
+            return check_json(json_data)   
         json_response = re.search(r"\[.*\]", text_response, re.DOTALL)
         if json_response:
             json_data = json_response.group(0)
