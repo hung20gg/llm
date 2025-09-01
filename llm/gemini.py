@@ -10,7 +10,7 @@ sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directo
 from llm.llm_utils import (
     get_all_api_key, 
     pil_to_base64, 
-    convert_to_gemini_format,
+    convert_messages_to_gemini_format,
     convert_non_system_prompts
     )
 from llm.llm.abstract import LLM
@@ -84,9 +84,7 @@ class Gemini(LLM):
             
         contents = []
         if isinstance(messages, list) and isinstance(messages[0], dict):
-            messages = convert_to_gemini_format(messages) 
-            for msg in messages:
-                contents.append(types.Content(role=msg['role'], parts=[types.Part.from_text(text=msg['parts'][0])]))
+            contents = self._convert_messages_to_gemini_format_with_object(messages)
         elif isinstance(messages, str):
             contents = [messages] 
 
@@ -107,7 +105,7 @@ class Gemini(LLM):
             yield chunk.text
             
     @staticmethod 
-    def convert_to_gemini_format(contents, has_system=True): 
+    def _convert_component_to_gemini_format(contents, has_system=True): 
         parts = []
         for part in contents:
             if isinstance(part, str):
@@ -118,7 +116,18 @@ class Gemini(LLM):
                 elif part.get('type') == 'image_url':
                     parts.append(types.Part.from_uri(file_uri=part['image_url']['url'], mime_type='image/jpeg'))
                 elif part.get('type') == 'image':
-                    parts.append(types.Part.from_bytes(data=pil_to_base64(part['image']), mime_type='image/jpeg'))
+
+                    # Encoded image to base64 url, format "data:image/jpeg;base64,<base64_data>"
+                    if isinstance(part['image'], str):
+                        if ',' not in part['image'] or not part['image'].startswith('data:image'):
+                            raise ValueError("Image string must be a base64 data URL")
+                        metadata, encoded = part['image'].split(',', 1)
+                        mime_type = metadata.split(';')[0].split(':')[1]
+                        parts.append(types.Part.from_bytes(data=encoded, mime_type=mime_type))
+                    
+                    # Raw image
+                    else:
+                        parts.append(types.Part.from_bytes(data=pil_to_base64(part['image']), mime_type='image/jpeg'))
                 elif part.get('type') == 'bytes':
                     mime_type = part.get('mine_type', 'image/jpeg')
                     parts.append(types.Part.from_bytes(data=part['bytes'], mime_type=mime_type))
@@ -126,7 +135,17 @@ class Gemini(LLM):
                     type_ = part.get('type')
                     raise ValueError(f"Invalid type: {type_}")
         return parts
+    
+    def _convert_messages_to_gemini_format_with_object(self, messages):
         
+        contents = []
+        messages = convert_messages_to_gemini_format(messages) 
+        for msg in messages:
+            parts = self._convert_component_to_gemini_format(msg['parts'])
+            contents.append(types.Content(role=msg['role'], parts=parts))
+
+        return contents
+
     def __call__(self, messages, temperature=0.4, tools = [], count_tokens=False, **config):
         
         if not self.system:
@@ -144,11 +163,8 @@ class Gemini(LLM):
                 system_instruction = messages[0]['content']
                 messages = messages[1:]
 
-            messages = convert_to_gemini_format(messages) 
-            for msg in messages:
-                parts = self.convert_to_gemini_format(msg['parts'])
-
-                contents.append(types.Content(role=msg['role'], parts=parts))
+            contents = self._convert_messages_to_gemini_format_with_object(messages)
+            
         elif isinstance(messages, str):
             contents = [messages]
 

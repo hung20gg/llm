@@ -151,7 +151,7 @@ class ChatGPT(LLM):
         
     def stream(self, messages, temperature = 0.6, **kwargs):
         
-        convert_to_multimodal_format(messages)
+        messages = convert_to_multimodal_format(messages)
 
         start = time.time()
         completion = self.client.chat.completions.create(

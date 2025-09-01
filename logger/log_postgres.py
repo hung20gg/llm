@@ -26,6 +26,7 @@ class LLMLogPostgres(LogBase):
         Initialize the logger with PostgreSQL database configuration.
         """
         self.model_name = llm.model_name
+        self.llm = llm
         if db_config is None:
             db_config = global_db_config
         self.db_config = db_config

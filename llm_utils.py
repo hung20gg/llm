@@ -12,6 +12,10 @@ from PIL import Image
 import base64
 from io import BytesIO
 
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
 def pil_to_base64(image, format="JPEG"):
     """
     Convert PIL image, file path, or numpy array to base64 string.
@@ -25,7 +29,12 @@ def pil_to_base64(image, format="JPEG"):
         Base64 encoded string of the image
     """
     if isinstance(image, str):
-        image = Image.open(image)
+        if os.path.exists(image):
+            image = Image.open(image)
+        else:
+            logging.warning(f"Return the original string")
+            return image
+
     elif isinstance(image, np.ndarray):
         image = Image.fromarray(image)
 
@@ -234,7 +243,7 @@ def convert_to_multimodal_format(messages, has_system=True):
                     if isinstance(c['image'], str):
                         if os.path.exists(c['image']):
                             image_url = f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"
-                        elif c['image'].startswith('data:image'):
+                        elif c['image'].startswith('data:image') or c['image'].startswith('https'):
                             image_url = c['image']
                             
                     elif isinstance(c['image'], Image.Image):
@@ -244,9 +253,10 @@ def convert_to_multimodal_format(messages, has_system=True):
                         new_content.append(
                             {
                                 'type': 'image_url',
-                                'image_url': {'url': f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"}
+                                'image_url': {'url': image_url}
                             }
                         )
+                        print("Add image")
                     
                 else:
                     new_content.append(c)
@@ -280,7 +290,7 @@ def convert_non_system_prompts(messages):
 
 
 
-def convert_to_gemini_format(messages, has_system=True):
+def convert_messages_to_gemini_format(messages, has_system=True):
     new_messages = []
     if not has_system:
         messages = convert_non_system_prompts(messages)
