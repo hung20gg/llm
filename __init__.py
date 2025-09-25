@@ -42,11 +42,11 @@ def _get_llm_wrapper(model_name, **kwargs):
 
     if 'gpt' in model_name:
         logging.info(f"Using ChatGPT with model {model_name}")
-        return ChatGPT(model_name=model_name, multimodal=multimodel, **kwargs)
+        return ChatGPT(model_name=model_name, **kwargs)
         
     elif 'gemini' in model_name:
         logging.info(f"Using Gemini with model {model_name}")
-        return Gemini(model_name=model_name, random_key='exp' in model_name, multimodal=multimodel, **kwargs)
+        return Gemini(model_name=model_name, random_key='exp' in model_name, **kwargs)
 
     logging.info(f"Using OpenAI Wrapper model: {model_name}")
 
