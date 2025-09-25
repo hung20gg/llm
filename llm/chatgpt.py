@@ -39,7 +39,7 @@ def output_with_usage(response, usage, count_tokens=False):
     return response
 
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, igrone_quota = True, system = True, **kwargs):
+    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, ignore_quota = True, system = True, **kwargs):
         super().__init__(model_name=model_name)
         self.host = host
         self.model_name = model_name
@@ -52,7 +52,7 @@ class OpenAIWrapper(LLM):
         self.__api_key = str(api_key)
         self.client = OpenAI(api_key=api_key, base_url=host)
         self.multimodal = multimodal
-        self.ignore_quota = igrone_quota
+        self.ignore_quota = ignore_quota
         self.system = system
 
     def stream(self, messages, temperature = 0.6, **kwargs):
@@ -79,12 +79,9 @@ class OpenAIWrapper(LLM):
                     yield content
         
         except Exception as e:
-            if not self.multimodal:
-                self.multimodal = True
-                self.stream(messages, **kwargs)
-            else:
-                print(e)
-                return ''
+            
+            print(e)
+            return ''
                     
     
     def __call__(self, messages, temperature = 0.6, response_format=None, count_tokens=False):

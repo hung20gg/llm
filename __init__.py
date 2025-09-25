@@ -14,18 +14,43 @@ logging.basicConfig(
 )
 
 
+def check_multi_model(model_name):
+
+    guarantee_models = [
+        'gpt',
+        'gemini',
+        'grok',
+        'claude',
+        'llama4'
+    ]
+
+    test = model_name.lower().replace('-', '').replace('_', '')
+
+    for gm in guarantee_models:
+        if gm in test:
+            return True
+    
+    if 'vl' in test:
+        return True
+    
+    return False
+
+
 def _get_llm_wrapper(model_name, **kwargs):
+
+    multimodel = check_multi_model(model_name)
+
     if 'gpt' in model_name:
         logging.info(f"Using ChatGPT with model {model_name}")
-        return ChatGPT(model_name=model_name, **kwargs)
+        return ChatGPT(model_name=model_name, multimodal=multimodel, **kwargs)
         
     elif 'gemini' in model_name:
         logging.info(f"Using Gemini with model {model_name}")
-        return Gemini(model_name=model_name, random_key='exp' in model_name, **kwargs)
+        return Gemini(model_name=model_name, random_key='exp' in model_name, multimodal=multimodel, **kwargs)
 
     logging.info(f"Using OpenAI Wrapper model: {model_name}")
 
-    return OpenAIWrapper(model_name=model_name,  **kwargs)
+    return OpenAIWrapper(model_name=model_name, multimodal=multimodel, **kwargs)
 
 
 def _get_host_api_prefix(provider, **kwargs):
