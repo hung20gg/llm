@@ -21,10 +21,13 @@ def check_multi_model(model_name):
         'gemini',
         'grok',
         'claude',
-        'llama4'
+        'llama4',
+        'llava'
     ]
 
     test = model_name.lower().replace('-', '').replace('_', '')
+    if 'gptoss' in test:
+        return False
 
     for gm in guarantee_models:
         if gm in test:
@@ -40,13 +43,14 @@ def _get_llm_wrapper(model_name, **kwargs):
 
     multimodel = check_multi_model(model_name)
 
-    if 'gpt' in model_name:
+    # Not using gpt-oss with chatgpt wrapper
+    if 'gpt' in model_name and 'oss' not in model_name:
         logging.info(f"Using ChatGPT with model {model_name}")
-        return ChatGPT(model_name=model_name, **kwargs)
+        return ChatGPT(model_name=model_name, multimodal=multimodel, **kwargs)
         
     elif 'gemini' in model_name:
         logging.info(f"Using Gemini with model {model_name}")
-        return Gemini(model_name=model_name, random_key='exp' in model_name, **kwargs)
+        return Gemini(model_name=model_name, multimodal=multimodel, **kwargs)
 
     logging.info(f"Using OpenAI Wrapper model: {model_name}")
 
@@ -85,8 +89,12 @@ def _get_host_api_prefix(provider, **kwargs):
 
 def get_llm_wrapper(model_name, **kwargs):
 
+    
+
     if model_name.count(':') == 1:
         provider, model = model_name.split(':')
+
+        multimodel = check_multi_model(model)
         logging.info(f"Using {provider} with model {model}")
 
         system_prompt = True
@@ -99,11 +107,11 @@ def get_llm_wrapper(model_name, **kwargs):
         
         if provider in ['openai']:
             logging.info(f"Using ChatGPT with model {model}")
-            return ChatGPT(model_name=model, **kwargs)
+            return ChatGPT(model_name=model, multimodal=multimodel, **kwargs)
         
         elif provider in ['gemini', 'google']:
             logging.info(f"Using Gemini with model {model}")
-            return Gemini(model_name=model, random_key='exp' in model, system=system_prompt, **kwargs)
+            return Gemini(model_name=model, multimodal=multimodel, system=system_prompt, **kwargs)
 
         host, api_prefix = _get_host_api_prefix(provider, **kwargs)
         api_key = os.getenv(api_prefix, None)
@@ -112,6 +120,7 @@ def get_llm_wrapper(model_name, **kwargs):
             model_name=model,
             host=host,
             api_key=api_key,
+            multimodal=multimodel,
             system=system_prompt,
             **kwargs
         )
@@ -122,8 +131,11 @@ def get_llm_wrapper(model_name, **kwargs):
 
 def get_rotate_llm_wrapper(model_name, **kwargs):
     provider = None
+    multimodel = check_multi_model(model_name)
     if model_name.count(':') == 1:
         provider, model_name = model_name.split(':')
+        multimodel = check_multi_model(model_name)
+
        
     system_prompt = True
     non_sys_prompt_model = ['llama3.2', 'llama-3.2', 'gemma']
@@ -135,9 +147,9 @@ def get_rotate_llm_wrapper(model_name, **kwargs):
     
     if 'gemini' in model_name or provider in ['google', 'gemini']:
         logging.info(f"Using Rotate Gemini with model {model_name}")
-        return RotateGemini(model_name=model_name, random_key='exp' in model_name, system=system_prompt, **kwargs)
+        return RotateGemini(model_name=model_name,  system=system_prompt, multimodal=multimodel, **kwargs)
 
     else:
         logging.info(f"Using Rotate OpenAI Wrapper model: {model_name}")
         host, api_prefix = _get_host_api_prefix(provider, **kwargs)
-        return RotateOpenAIWrapper(model_name=model_name, host=host, api_prefix=api_prefix, system=system_prompt, **kwargs)
+        return RotateOpenAIWrapper(model_name=model_name, host=host, multimodal=multimodel, api_prefix=api_prefix, system=system_prompt, **kwargs)
