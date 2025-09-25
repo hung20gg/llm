@@ -8,6 +8,8 @@ class LogBase:
     
     def __init__(self, llm):
         self.llm = llm
+        self.model_name = llm.model_name
+        self.multimodal = llm.multimodal if hasattr(llm, 'multimodal') else False
 
     def process_messages(self, messages: list[dict], save_images: bool) -> list[dict]:
         """

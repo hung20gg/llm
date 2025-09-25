@@ -21,11 +21,10 @@ global_db_config = {
 class LLMLogMongoDB(LogBase):
 
     def __init__(self, llm, db_config=None):
+        super().__init__(llm)
         """
         Initialize the logger with MongoDB configuration.
         """
-        self.model_name = llm.model_name
-        self.llm = llm
         if db_config is None:
             db_config = global_db_config
         self.db_config = db_config
