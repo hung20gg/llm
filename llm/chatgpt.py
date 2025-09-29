@@ -151,14 +151,23 @@ class ChatGPT(LLM):
         messages = convert_to_multimodal_format(messages)
 
         start = time.time()
-        completion = self.client.chat.completions.create(
-            model = self.model_name,
-            messages = messages,
-            temperature=temperature,
-            stream = True,
-            stream_options={"include_usage": True},
-            **kwargs
-        )
+        if 'gpt-5' in self.model_name:
+            completion = self.client.chat.completions.create(
+                model = self.model_name,
+                messages = messages,
+                stream = True,
+                stream_options={"include_usage": True},
+                **kwargs
+            )
+        else:
+            completion = self.client.chat.completions.create(
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                stream = True,
+                stream_options={"include_usage": True},
+                **kwargs
+            )
         for chunk in completion:
             content = chunk.choices
             if len(content) > 0:
@@ -183,7 +192,16 @@ class ChatGPT(LLM):
                     stream = False,
                     **kwargs
                 )
+            elif 'gpt-5' in self.model_name:
+                completion = self.client.chat.completions.create(
+                    model = self.model_name,
+                    messages = messages,
+                    stream = False,
+                    tools = tools,
+                    **kwargs
+                )    
             else:
+                
                 completion = self.client.chat.completions.create(
                     model = self.model_name,
                     messages = messages,
