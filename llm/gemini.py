@@ -171,7 +171,7 @@ class Gemini(LLM):
             if messages[0]['role'] == 'system':
                 if json_format:
                     system_instruction = {
-                        'part': [{'text': messages[0]['content']}]
+                        'parts': [{'text': messages[0]['content']}]
                     }
                 else:
                     system_instruction = [types.Part.from_text(text=messages[0]['content'])]
@@ -183,7 +183,11 @@ class Gemini(LLM):
                 contents = self._convert_messages_to_gemini_format_with_object(messages)
             
         elif isinstance(messages, str):
-            contents = [messages]
+            # For string messages, convert to proper format
+            if json_format:
+                contents = [{'role': 'user', 'parts': [{'text': messages}]}]
+            else:
+                contents = [messages]
 
         else:
             contents = messages

@@ -11,7 +11,7 @@ import os
 from PIL import Image
 import base64
 from io import BytesIO
-
+from typing import Union
 import logging
 
 logger = logging.getLogger(__name__)
@@ -274,8 +274,15 @@ def convert_to_multimodal_format(messages, has_system=True):
 
 
 
-def convert_non_system_prompts(messages):
+def convert_non_system_prompts(messages: Union[list, str]) -> Union[list, dict]:
     new_messages = []
+    if len(messages) == 0:
+        raise ValueError("Messages list is empty")
+    
+    # Simplified messages does not have system prompt
+    if not (isinstance(messages, list) and isinstance(messages[0], dict)):
+        return messages
+
     if messages[0]['role'] == 'system':
         system_prompt = messages[0]['content']
 
