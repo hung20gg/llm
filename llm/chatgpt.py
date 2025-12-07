@@ -1,7 +1,11 @@
 import json
-
 import os 
 import sys
+import random
+import time
+from uuid import uuid4
+from openai import OpenAI
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
 
@@ -9,24 +13,14 @@ from llm.llm_utils import (
     get_all_api_key, 
     convert_to_multimodal_format, 
     list_of_messages_to_batch_chatgpt,
-    convert_non_system_prompts
+    convert_non_system_prompts,
+    logger
     )
 from llm.llm.abstract import LLM
-import time
-import logging
 
-from openai import OpenAI
 
 from dotenv import load_dotenv
 load_dotenv()
-
-import os
-import random
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 
 def output_with_usage(response, usage, count_tokens=False):
     if count_tokens:
@@ -103,14 +97,14 @@ class OpenAIWrapper(LLM):
         except Exception as e:
 
             if not self.multimodal:
-                logging.warning("Switching to multimodal")
+                logger.warning("Switching to multimodal")
                 self.multimodal = True
                 return self(messages, temperature, response_format, count_tokens)
 
             else:
                 
                 # Handle edge cases
-                logging.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+                logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
                 if self.ignore_quota:
                     return ''
                 else:
@@ -122,7 +116,7 @@ class OpenAIWrapper(LLM):
             self.input_token += completion.usage.prompt_tokens
             self.output_token += completion.usage.completion_tokens
         end = time.time()
-        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
         
         return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
@@ -174,7 +168,7 @@ class ChatGPT(LLM):
                 yield content[0].delta.content
                 
         end = time.time()
-        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        logger.info(f"Completion time of {self.model_name}: {end - start}s")
         
             
 
@@ -213,11 +207,11 @@ class ChatGPT(LLM):
             
             response = completion.choices[0].message
             
-            logging.info(completion.usage)
+            logger.info(completion.usage)
             self.input_token += completion.usage.prompt_tokens
             self.output_token += completion.usage.completion_tokens
             end = time.time()
-            logging.info(f"Completion time of {self.model_name}: {end - start}s")
+            logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
             
             # Return the parsed response if it exists
@@ -235,13 +229,13 @@ class ChatGPT(LLM):
         
         except Exception as e:
             # Handle edge cases
-            logging.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
             if self.ignore_quota:
                 return ''
             else:
                 raise e
     
-    def batch_call(self, list_messages, transform = True, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
+    def batch_call(self, list_messages, key_list=[], prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
         
         """
         Batch call for ChatGPT
@@ -250,9 +244,14 @@ class ChatGPT(LLM):
         prefix: prefix for the batch file
         example_per_batch: number of messages per batch
         """
+        if not key_list or len(key_list) == 0:
+            key_list = []
+            for _ in list_messages:
+                key_list.append(str(uuid4()))
+        
+        assert len(list_messages) == len(key_list), "Length of list_messages and key_list must be the same"
 
-        if transform:
-            list_messages = list_of_messages_to_batch_chatgpt(list_messages, example_per_batch=example_per_batch, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
+        list_messages = list_of_messages_to_batch_chatgpt(list_messages, key_list, example_per_batch=example_per_batch, model_type=self.model_name, prefix=prefix, max_tokens=self.max_tokens)
 
         if not os.path.exists('process'):
             os.mkdir('process')
@@ -261,14 +260,16 @@ class ChatGPT(LLM):
             os.mkdir('batch')
         
         for i, batch in enumerate(list_messages):
+            
+            # Save file to upload
             with open(f'process/process-{prefix}-{i}.jsonl', 'w', encoding='utf-8') as file:
                 for message in batch:
                     json_line = json.dumps(message)
                     file.write(json_line + '\n')
-
-        for i, batch in enumerate(list_messages):
+            
+            # Upload file
             if i % sleep_step == 0 and i != 0 and sleep_time != 0:
-                logging.info(f"Sleeping for {sleep_time} seconds")
+                logger.info(f"Sleeping for {sleep_time} seconds")
                 time.sleep(sleep_time)
             batch_input_file = self.client.files.create(file=open(f'process/process-{prefix}-{i}.jsonl', 'rb'), purpose='batch')
             
@@ -281,7 +282,7 @@ class ChatGPT(LLM):
                 "description": f"batch_{i}"
                 }
             )
-            logging.info(f"Batch {i} created")
+            logger.info(f"Batch {i} created")
             with open(f'batch/batch-{prefix}.jsonl', 'a', encoding='utf-8') as file:
                 file.write(json.dumps({"id": batch_job.id}))
                 file.write('\n')
@@ -296,7 +297,7 @@ class ChatGPT(LLM):
                     batch = self.retrieve(batch_id)
 
 
-                    logging.info(f"Batch {batch_id} status: {batch.status}")
+                    logger.info(f"Batch {batch_id} status: {batch.status}")
                     batch_ids.append({
                         "id": batch_id,
                         "status": batch.status
@@ -307,14 +308,14 @@ class ChatGPT(LLM):
         batch_ids = []
         batches = self.client.batches.list()
         for batch in batches:
-                logging.info(f"Batch {batch.id} status: {batch.status}")
+                logger.info(f"Batch {batch.id} status: {batch.status}")
                 batch_ids.append({
                     "id": batch.id,
                     "status": batch.status
                 })
         return batch_ids
 
-    def get_successful_messages(self, batch_ids: list[dict]):
+    def get_successful_messages(self, batch_ids: list[dict]) -> list[dict]:
         """
         Get successful messages from batch
         Batch_ids: list of batch ids (from recall_local_batch or recall_online_batch)
@@ -335,8 +336,8 @@ class ChatGPT(LLM):
                         for line in file:
                             messages = json.loads(line)
                             messages_obj = {
-                                "ids": messages.get('custom_id'),
-                                "response": messages.get('response').get('body').get('choices')[0].get('message').get('content')
+                                "key": messages.get('custom_id'),
+                                "text": messages.get('response').get('body').get('choices')[0].get('message').get('content')
                             }
                             successful_messages.append(messages_obj)
 
@@ -409,7 +410,7 @@ class RotateOpenAIWrapper:
             print(client)
             return client( **kwargs), True
         except Exception as e:
-            logging.error(f"Error: {e}")
+            logger.error(f"Error: {e}")
             return '', False
 
     def __call__(self, messages, **kwargs):
@@ -422,7 +423,7 @@ class RotateOpenAIWrapper:
             client = self.queue.popleft() # Get the next client
             count += 1
             if count % len(self.queue) == 0:
-                logging.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
+                logger.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
                 time.sleep(30)
             if count > max_count:
                 break
@@ -447,7 +448,7 @@ class RotateOpenAIWrapper:
             time.sleep(min(tries, 10))
             self.queue.append(client)
             if tries > len(self.queue) * 2:
-                logging.error("All clients have failed to make a request")
+                logger.error("All clients have failed to make a request")
                 return ''
             
         return response
@@ -461,7 +462,7 @@ class RotateOpenAIWrapper:
             client = self.queue.popleft()
             count += 1
             if count % len(self.queue) == 0:
-                logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                logger.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
                 time.sleep(10)
             if count > max_count:
                 break

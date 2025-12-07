@@ -1,6 +1,6 @@
 import boto3
 import json
-from ..llm_utils import convert_llama_format, convert_to_multimodal_format
+from ..llm_utils import convert_llama_format, convert_to_multimodal_format, logger
 from .abstract import LLM
 import time
 

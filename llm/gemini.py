@@ -1,9 +1,14 @@
 import json
-import logging
 import time
-
 import os 
 import sys
+import random
+from uuid import uuid4
+from google import genai
+from google.genai import types
+from google.genai.types import HarmCategory, HarmBlockThreshold
+
+
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
 
@@ -11,28 +16,13 @@ from llm.llm_utils import (
     get_all_api_key, 
     pil_to_base64, 
     convert_messages_to_gemini_format,
-    convert_non_system_prompts
+    convert_non_system_prompts,
+    logger
     )
 from llm.llm.abstract import LLM
-
-from google import genai
-import random
-
-
-
-from google.genai.types import HarmCategory, HarmBlockThreshold
-
 from dotenv import load_dotenv
 load_dotenv()
 
-import os
-from google.genai import types
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)  
       
 class Gemini(LLM):
     def __init__(self, model_name = 'gemini-2.0-flash', api_key = None, random_key = False, igrone_quota = True, system = True, **kwargs):
@@ -77,17 +67,9 @@ class Gemini(LLM):
         if not self.system:
             messages = convert_non_system_prompts(messages)
         
-        system_instruction = None
-        if len(messages) > 0 and messages[0]['role'] == 'system':
-            system_instruction = messages[0]['content']
-            messages = messages[1:]
-            
-        contents = []
-        if isinstance(messages, list) and isinstance(messages[0], dict):
-            contents = self._convert_messages_to_gemini_format_with_object(messages)
-        elif isinstance(messages, str):
-            contents = [messages] 
-
+        gemini_conversion = self.convert_conversation_to_gemini_format(messages)
+        contents = gemini_conversion['contents']
+        system_instruction = gemini_conversion['generation_config']['system_instruction']
         
         response = self.client.models.generate_content_stream(model = self.model_name,
                                                             contents = contents, 
@@ -105,7 +87,7 @@ class Gemini(LLM):
             yield chunk.text
             
     @staticmethod 
-    def _convert_component_to_gemini_format(contents, has_system=True): 
+    def _convert_component_to_gemini_format(contents): 
         parts = []
         for part in contents:
             if isinstance(part, str):
@@ -135,6 +117,34 @@ class Gemini(LLM):
                     type_ = part.get('type')
                     raise ValueError(f"Invalid type: {type_}")
         return parts
+
+    @staticmethod
+    def _convert_component_to_gemini_format_json(contents): 
+        parts = []
+        for part in contents:
+            if isinstance(part, str):
+                parts.append({'text': part})
+            elif isinstance(part, dict):
+                if part.get('type') == 'text':
+                    parts.append({'text': part['text']})
+                elif part.get('type') == 'image_url':
+                    parts.append({'image_url': {'url': part['image_url']['url']}})
+                elif part.get('type') == 'image':
+                    # Encoded image to base64 url, format "data:image/jpeg;base64,<base64_data>"
+                    if isinstance(part['image'], str):
+                        if ',' not in part['image'] or not part['image'].startswith('data:image'):
+                            raise ValueError("Image string must be a base64 data URL")
+                        parts.append({'image': part['image']})
+                    # Raw image
+                    else:
+                        parts.append({'image': pil_to_base64(part['image'])})
+                elif part.get('type') == 'bytes':
+                    mime_type = part.get('mine_type', 'image/jpeg')
+                    parts.append({'bytes': part['bytes'], 'mine_type': mime_type})
+                else:
+                    type_ = part.get('type')
+                    raise ValueError(f"Invalid type: {type_}")
+        return parts 
     
     def _convert_messages_to_gemini_format_with_object(self, messages):
         
@@ -145,31 +155,57 @@ class Gemini(LLM):
             contents.append(types.Content(role=msg['role'], parts=parts))
 
         return contents
-
-    def __call__(self, messages, temperature=0.4, tools = [], count_tokens=False, **config):
-        
-        if not self.system:
-            messages = convert_non_system_prompts(messages)
-
-        start = time.time()
-        
-        system_instruction = None
-        # print(self.model_name)
-
+    
+    def _convert_messages_to_gemini_format_with_json(self, messages):
         contents = []
+        messages = convert_messages_to_gemini_format(messages) 
+        for msg in messages:
+            parts = self._convert_component_to_gemini_format_json(msg['parts'])
+            contents.append({'role': msg['role'], 'parts': parts})
+        return contents
+
+    def convert_conversation_to_gemini_format(self, messages, json_format=False):
+        system_instruction = None
         if isinstance(messages, list) and isinstance(messages[0], dict):
             
             if messages[0]['role'] == 'system':
-                system_instruction = messages[0]['content']
+                if json_format:
+                    system_instruction = {
+                        'part': [{'text': messages[0]['content']}]
+                    }
+                else:
+                    system_instruction = [types.Part.from_text(text=messages[0]['content'])]
                 messages = messages[1:]
 
-            contents = self._convert_messages_to_gemini_format_with_object(messages)
+            if json_format:
+                contents = self._convert_messages_to_gemini_format_with_json(messages)
+            else:
+                contents = self._convert_messages_to_gemini_format_with_object(messages)
             
         elif isinstance(messages, str):
             contents = [messages]
 
         else:
             contents = messages
+
+        return {
+            'contents': contents,
+            'generation_config': {
+                'system_instruction': system_instruction
+            }
+        }
+    
+    
+    def __call__(self, messages, temperature=0.4, tools = [], count_tokens=False, json_format=False, **config):
+        
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        start = time.time()
+
+        gemini_conversion = self.convert_conversation_to_gemini_format(messages, json_format=json_format)
+        contents = gemini_conversion['contents']
+        system_instruction = gemini_conversion['generation_config']['system_instruction']
 
         # Check function calling:
         bool_function = False
@@ -181,7 +217,7 @@ class Gemini(LLM):
                     functions.append(tool)
 
         if bool_function:
-            logging.info(f"Number of functions: {len(tools)}. Callables: {len(functions)}")
+            logger.info(f"Number of functions: {len(tools)}. Callables: {len(functions)}")
             
             
             config = types.GenerateContentConfig(
@@ -213,7 +249,7 @@ class Gemini(LLM):
                                                                                                            
             
             end = time.time()
-            logging.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
+            logger.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
             
             if count_tokens:
                 return {
@@ -228,11 +264,141 @@ class Gemini(LLM):
 
 
             # Log the error
-            logging.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
             if self.ignore_quota:
                 return ''
             else:
                 raise e
+
+    
+    def batch_call(self, list_messages, key_list=[], temperature=0.4, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10, **config):
+        requests = []
+
+        if not key_list or len(key_list) == 0:
+            key_list = []
+            for _ in list_messages:
+                key_list.append(str(uuid4()))
+
+        assert len(list_messages) == len(key_list), "Length of messages_list and key_list must be the same"
+        
+        for messages, key in zip(list_messages, key_list):
+            messages = convert_non_system_prompts(messages)
+            conversation = self.convert_conversation_to_gemini_format(messages, json_format=True)
+            conversation['generation_config'] = {
+                'temperature': temperature,
+                **config
+            }
+            
+            request = {
+                "key": key,
+                "request": conversation
+            }
+
+            requests.append(request)
+
+        batch_requests = []
+        for i in range(0, len(requests), example_per_batch):
+            batch_requests.append(requests[i:i + example_per_batch])
+
+        # Upload batch requests
+        if not os.path.exists('process-gemini'):
+            os.mkdir('process-gemini')
+        
+        if not os.path.exists('batch-gemini'):
+            os.mkdir('batch-gemini')
+
+        for i, batch in enumerate(batch_requests):
+            process_file = f'process-gemini/process-{prefix}-{i}.jsonl'
+            
+            # Save file to upload
+            for res in batch:
+                with open(process_file, 'a', encoding='utf-8') as f:
+                    f.write(json.dumps(res, ensure_ascii=False) + "\n")
+
+            batch_input_file = self.client.files.upload(
+                file = process_file,
+                config = types.UploadFileConfig(display_name=f'process-{prefix}-{i}', mime_type='jsonl')
+            )
+
+            logger.debug(f"Uploaded file: {batch_input_file.name}")
+
+            batch_job = self.client.batches.create(
+                model=self.model_name,
+                src=batch_input_file.name,
+                config={
+                    'display_name': f"upload-job-{prefix}-{i}",
+                },
+            )
+
+            logger.debug(f"Created batch job: {batch_job}")
+
+            with open(f'batch-gemini/batch-{prefix}.jsonl', 'a', encoding='utf-8') as f:
+                f.write(json.dumps({
+                    'name': batch_job.name,
+                }, ensure_ascii=False) + "\n")
+
+            # Remove the process file after uploading
+            if os.path.exists(process_file):
+                os.remove(process_file)
+                logger.info(f"Removed process file: {process_file}")
+
+            
+            
+    def retrieve(self, batch_name):
+        return self.client.batches.get(name=batch_name)
+  
+    
+    def recall_local_batch(self, prefix = '' ):
+        batch_ids = []
+        if os.path.exists(f'batch-gemini/batch-{prefix}.jsonl'):
+            with open(f'batch-gemini/batch-{prefix}.jsonl', 'r', encoding='utf-8') as file:
+                for line in file:
+                    batch_name = json.loads(line)['name']
+
+                    batch = self.retrieve(batch_name)
+
+
+                    logger.info(f"Batch {batch_name} status: {batch.state.name}")
+                    batch_ids.append({
+                        "name": batch_name,
+                        "status": batch.state.name
+                    })
+        return batch_ids
+        
+    def get_successful_messages(self, batch_ids = None) -> list[dict]:
+        if batch_ids is None:
+            batch_ids = self.recall_local_batch()
+        
+        successful_messages = []
+        for batch in batch_ids:
+            if batch['status'] == 'JOB_STATE_SUCCEEDED':
+                batch_job = self.retrieve(batch['name'])
+                result_file_name = batch_job.dest.file_name
+                
+                file_content_bytes = self.client.files.download(file=result_file_name)
+                file_content = file_content_bytes.decode('utf-8')
+                # The result file is also a JSONL file. Parse and print each line.
+                for line in file_content.splitlines():
+                    if line:
+                        parsed_response = json.loads(line)
+                        
+                        key = parsed_response['key']
+                        response = parsed_response.get('response', None)
+                        if response:
+                            text = ''
+                            for part in parsed_response['response']['candidates'][0]['content']['parts']:
+                                if part.get('text'):
+                                    text += part['text']
+                            
+                            successful_messages.append({
+                                "key": key,
+                                "text": text
+                            })
+
+
+        return successful_messages
+
+        
         
 from collections import deque
 
@@ -310,7 +476,7 @@ class RotateGemini(LLM):
             print(client)
             return client(**kwargs), True
         except Exception as e:
-            logging.error(f"Error: {e}")
+            logger.error(f"Error: {e}")
             return '', False
 
     def __call__(self, messages, **kwargs):
@@ -330,7 +496,7 @@ class RotateGemini(LLM):
                 break
 
             if count % len(self.queue) == 0:
-                logging.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
+                logger.warning("All clients have reached the maximum rpm. Wait for 30 seconds")
                 time.sleep(30)
             if count > max_count:
                 break
@@ -355,7 +521,7 @@ class RotateGemini(LLM):
             time.sleep(min(tries, 10))
             self.queue.append(client)
             if tries > len(self.queue) * 2:
-                logging.error("All clients have failed to make a request")
+                logger.error("All clients have failed to make a request")
                 return ''
             
         return response
@@ -377,7 +543,7 @@ class RotateGemini(LLM):
                 break
 
             if count % len(self.queue) == 0:
-                logging.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                logger.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
                 time.sleep(10)
             if count > max_count:
                 break

@@ -14,7 +14,12 @@ from io import BytesIO
 
 import logging
 
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] - [%(levelname)s] - %(message)s'
+)
 
 def pil_to_base64(image, format="JPEG"):
     """
@@ -32,7 +37,7 @@ def pil_to_base64(image, format="JPEG"):
         if os.path.exists(image):
             image = Image.open(image)
         else:
-            logging.warning(f"Return the original string")
+            logger.warning(f"Return the original string")
             return image
 
     elif isinstance(image, np.ndarray):
@@ -92,19 +97,20 @@ def get_all_api_key(key: str) -> list[str]:
 
 
 
-def list_of_messages_to_batch_chatgpt(messages, example_per_batch = 10000, prefix = '', model_type = 'gpt-4o-mini', max_tokens = 40000):
+def list_of_messages_to_batch_chatgpt(messages, keys, example_per_batch = 10000, prefix = '', model_type = 'gpt-4o-mini', max_tokens = 40000):
     list_of_batches = []
     for i in range(0, len(messages), example_per_batch):
-        batch = messages[i:i+example_per_batch]
+        batch_messages = messages[i:i+example_per_batch]
+        batch_keys = keys[i:i+example_per_batch]
         batch_json = []
-        for j, message in enumerate(batch):
+        for j in range(len(batch_messages)):
             json_obj = {
-                "custom_id": f"request_{prefix}_{i*example_per_batch+j}",
+                "custom_id": batch_keys[j],
                 "method": "POST",
                 "url": '/v1/chat/completions',
                 "body": {
                     "model": model_type,
-                    "messages": message,
+                    "messages": batch_messages[j],
                     "max_tokens":max_tokens
                 },
                 
@@ -135,8 +141,8 @@ def check_json(json_data):
             json_data = ast.literal_eval(json_data)
             return json.dumps(json_data, indent=4)
         except Exception as e2:
-            print(e2)
-            print("Error in converting JSON response")
+            logger.error(e2)
+            logger.error("Error in converting JSON response")
             return json_data
 
 def get_json_from_text_response(text_response, new_method=False):
@@ -162,7 +168,7 @@ def get_json_from_text_response(text_response, new_method=False):
             json_data = json_response.group(0)
             return check_json(json_data)
 
-    print("No JSON response found in text response")
+    logger.warning("No JSON response found in text response")
     return text_response
 
 
@@ -181,7 +187,7 @@ def get_code_from_text_response(text_response):
         return return_code
     
     else:
-        print("No code response found in text response")
+        logger.warning("No code response found in text response")
         return [{'language': 'text', 'code': text_response}]
 
 

@@ -4,18 +4,13 @@ from ..llm_utils import *
 from .abstract import LLM
 
 import time
-import logging
+import logger
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import os
 import random
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 
 class vLLM(LLM):
     
@@ -35,9 +30,9 @@ class vLLM(LLM):
         self.multimodal = multimodal
 
         if os.path.exists(lora_path):
-            logging.info(f"Loading LoRA model from {lora_path}")
+            logger.info(f"Loading LoRA model from {lora_path}")
         else:
-            logging.warning(f"LoRA model path {lora_path} does not exist. Using default model.")
+            logger.warning(f"LoRA model path {lora_path} does not exist. Using default model.")
             lora_path = None
 
         
@@ -66,12 +61,12 @@ class vLLM(LLM):
 
         generated_text = output.outputs[0].text
         end = time.time()
-        logging.info(f"Model name: {self.model_name} Time taken: {end - start:.2f} seconds")
+        logger.info(f"Model name: {self.model_name} Time taken: {end - start:.2f} seconds")
         return generated_text
     
 
     def stream(self, messages, temperature = 0.6, **kwargs):
-        logging.warning("vLLM Offline mode does not support streaming yet.")
+        logger.warning("vLLM Offline mode does not support streaming yet.")
         yield self.__call__(messages, temperature, **kwargs)
     
 
@@ -90,6 +85,6 @@ class vLLM(LLM):
 
         generated_texts = [output.outputs[0].text for output in outputs]
         end = time.time()
-        logging.info(f"Model name: {self.model_name} Time taken: {end - start:.2f} seconds")
+        logger.info(f"Model name: {self.model_name} Time taken: {end - start:.2f} seconds")
         return generated_texts
         

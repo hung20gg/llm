@@ -5,15 +5,9 @@ import gc
 from threading import Thread
 
 import json
-from ..llm_utils import convert_non_system_prompts
+from ..llm_utils import convert_non_system_prompts, logger
 from .abstract import LLM
 import time
-import logging
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -57,20 +51,20 @@ class HuggingFaceLLM(LLM):
         quantize_config = None
         
         if self.quantization == 'int4':
-            logging.info("Using int4 quantization with bfloat16 compute dtype")
+            logger.info("Using int4 quantization with bfloat16 compute dtype")
             quantize_config = BitsAndBytesConfig(
                 load_in_4bit=True,
                 bnb_4bit_compute_dtype=torch.bfloat16
                 )
             
         elif self.quantization == 'int8':
-            logging.info("Using int8 quantization with bfloat16 compute dtype")
+            logger.info("Using int8 quantization with bfloat16 compute dtype")
             quantize_config = BitsAndBytesConfig(
                 load_in_8bit=True,
                 bnb_8bit_compute_dtype=torch.bfloat16
                 )
         else:
-            logging.info("Using full bfloat16 precision (no quantization)")
+            logger.info("Using full bfloat16 precision (no quantization)")
 
         self.model = AutoModelForCausalLM.from_pretrained(
             self.model_name, 
@@ -81,7 +75,7 @@ class HuggingFaceLLM(LLM):
         )
 
         if self.lora_name:
-            logging.info(f"Loading LoRA adapter from {self.lora_name}")
+            logger.info(f"Loading LoRA adapter from {self.lora_name}")
             self.model = PeftModel.from_pretrained(
                 self.model,
                 self.lora_name,
@@ -143,7 +137,7 @@ class HuggingFaceLLM(LLM):
                     answer.append(result[0]['generated_text'][-1]['content'])
                 
         end = time.time()
-        logging.info(f"Completion time of {self.model_name}: {end - start}s")
+        logger.info(f"Completion time of {self.model_name}: {end - start}s")
         return answer
         
     def stream(self, messages, **kwargs):
@@ -162,7 +156,7 @@ class HuggingFaceLLM(LLM):
         # Check if batch processing is requested
         batch_process = False
         if isinstance(messages[0], list):
-            logging.warning("Batch processing not supported for streaming. Using first message only.")
+            logger.warning("Batch processing not supported for streaming. Using first message only.")
             messages = messages[0]
         
         # Initialize agent if needed
@@ -237,4 +231,4 @@ class HuggingFaceLLM(LLM):
                 yield token
         
         end = time.time()
-        logging.info(f"Streaming completion time of {self.model_name}: {end - start}s")
+        logger.info(f"Streaming completion time of {self.model_name}: {end - start}s")
