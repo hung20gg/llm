@@ -4,7 +4,6 @@ from ..llm_utils import *
 from .abstract import LLM
 
 import time
-import logger
 
 from dotenv import load_dotenv
 load_dotenv()
