@@ -9,7 +9,7 @@ import time
 from uuid import uuid4
 from PIL import Image
 
-from llm.logger.log_base import LogBase
+from llm.llm_logger.log_base import LogBase
 
 global_db_config = {
     'host': os.getenv('POSTGRE_HOST', 'localhost'),

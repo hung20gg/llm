@@ -7,7 +7,7 @@ import pymongo
 from datetime import datetime
 import time
 
-from llm.logger.log_base import LogBase
+from llm.llm_logger.log_base import LogBase
 
 global_db_config = {
     'host': os.getenv('MONGO_HOST', 'localhost'),
