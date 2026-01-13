@@ -5,6 +5,7 @@ import random
 import time
 from uuid import uuid4
 from openai import OpenAI
+from typing import Optional, List, Dict, Any, Union, Iterator, Generator, Tuple
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
@@ -22,7 +23,7 @@ from llm.llm.abstract import LLM
 from dotenv import load_dotenv
 load_dotenv()
 
-def output_with_usage(response, usage, count_tokens=False):
+def output_with_usage(response: Any, usage: Any, count_tokens: bool = False) -> Union[Dict[str, Any], Any]:
     if count_tokens:
         return {
             "response": response,
@@ -32,14 +33,68 @@ def output_with_usage(response, usage, count_tokens=False):
         }
     return response
 
+
+def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Any]:
+    try:
+        completion = client.chat.completions.create(
+            stream=True,
+            **kwargs
+        )
+        for chunk in completion:
+            yield chunk
+    except Exception as e:
+        logger.error(f"Error in chat completion stream: {e}")
+        return
+
+
+def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Union[Any, None]:
+    try:
+        completion = client.chat.completions.create(
+            **kwargs
+        )
+        return completion
+    except Exception as e:
+        logger.error(f"Error in chat completion: {e}")
+        return None
+    
+    
+def _openai_tool_calling_stream(client: OpenAI, **kwargs: Any) -> Iterator[Any]:
+    try:
+        stream_response = client.chat.completions.create(
+            stream=True,
+            **kwargs
+        )
+
+        for chunk in stream_response:
+            yield chunk
+    except Exception as e:
+        logger.error(f"Error in tool streaming calling: {e}")
+        return
+
+
+def _openai_tool_calling(client: OpenAI, stream: bool = False, **kwargs: Any) -> Union[Iterator[Any], Any, None]:
+
+    try:
+        completion  = client.chat.completions.create(
+            **kwargs
+        )
+        return completion 
+    except Exception as e:
+        logger.error(f"Error in tool calling: {e}")
+        return None
+
+
 class OpenAIWrapper(LLM):
-    def __init__(self, host, model_name, api_key = None, api_prefix = None, random_key = False, multimodal = False, ignore_quota = True, system = True, **kwargs):
+    def __init__(self, host: str, model_name: str, api_key: Optional[str] = None, api_prefix: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, system: bool = True, **kwargs: Any) -> None:
         super().__init__(model_name=model_name)
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
 
         if api_key is None and random_key:
+            if api_prefix is None:
+                api_prefix = 'OPENAI_API_KEY'
+                
             possible_keys = get_all_api_key(api_prefix)
             api_key = random.choice(possible_keys)
 
@@ -49,7 +104,7 @@ class OpenAIWrapper(LLM):
         self.ignore_quota = ignore_quota
         self.system = system
 
-    def stream(self, messages, temperature = 0.6, **kwargs):
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
         
 
         # Disable system prompt (for gemma or llama 3.2)
@@ -60,25 +115,35 @@ class OpenAIWrapper(LLM):
             messages = convert_to_multimodal_format(messages)    
 
         try:
-            completion = self.client.chat.completions.create(
-                model = self.model_name,
-                messages = messages,
-                temperature=temperature,
-                stream = True,
-                **kwargs
-            )
-            for chunk in completion:
-                content = chunk.choices[0].delta.content
-                if content:
-                    yield content
+            if tools is not None and len(tools) > 0:
+                completion = _openai_tool_calling_stream(
+                    client = self.client,
+                    model = self.model_name,
+                    messages = messages,
+                    temperature=temperature,
+                    tools = tools,
+                    **kwargs
+                )
+            else:
+                completion = _openai_text_completion_stream(
+                    client = self.client,
+                    model = self.model_name,
+                    messages = messages,
+                    temperature=temperature,
+                    **kwargs
+                )
+            if completion:
+                for chunk in completion:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
         
         except Exception as e:
-            
-            print(e)
-            return ''
+            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            return None
                     
     
-    def __call__(self, messages, temperature = 0.6, response_format=None, count_tokens=False):
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, count_tokens: bool = False, tools: Optional[List[Any]] = None, **kwargs: Any) -> Union[str, Dict[str, Any]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -88,18 +153,30 @@ class OpenAIWrapper(LLM):
 
         start = time.time()
         try:
-            completion = self.client.chat.completions.create(
-                model = self.model_name,
-                messages = messages,
-                temperature=temperature,
-                stream=False
-            )
+            if tools is not None and len(tools) > 0:
+                completion = _openai_tool_calling(
+                    client = self.client,
+                    model = self.model_name,
+                    messages = messages,
+                    temperature=temperature,
+                    tools = tools,
+                    **kwargs
+                )
+            else:
+                completion = _openai_text_completion(
+                    client = self.client,
+                    model = self.model_name,
+                    messages = messages,
+                    temperature=temperature,
+                    tools = tools,
+                )
+                
         except Exception as e:
 
             if not self.multimodal:
                 logger.warning("Switching to multimodal")
                 self.multimodal = True
-                return self(messages, temperature, response_format, count_tokens)
+                return self(messages, temperature, count_tokens)
 
             else:
                 
@@ -110,19 +187,49 @@ class OpenAIWrapper(LLM):
                 else:
                     raise e
 
-        if hasattr(completion, 'usage'):
-            print(completion.usage)
-            
-            self.input_token += completion.usage.prompt_tokens
-            self.output_token += completion.usage.completion_tokens
         end = time.time()
         logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
         
-        return output_with_usage(completion.choices[0].message.content, completion.usage, count_tokens)
+        return completion.choices[0].message.content
+    
+    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> List[Any]:
+        
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+            
+        try:
+            start = time.time()
+            completion = _openai_tool_calling(
+                client = self.client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
+            
+            tool_calls = []
+            for choice in completion.choices[0].message.tool_calls:
+                tool_calls.append(choice.model_dump())
+            
+            end = time.time()
+            logger.info(f"Completion time of {self.model_name}: {end - start}s")
+
+            return tool_calls
+        except Exception as e:
+            # Handle edge cases
+            logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
+            if self.ignore_quota:
+                return []
+            else:
+                raise e
     
 class ChatGPT(LLM):
-    def __init__(self, model_name = 'gpt-4o-mini', engine='davinci-codex', max_tokens=16384, api_key = None, random_key = False, multimodal = False, ignore_quota = True, **kwargs):
+    def __init__(self, model_name: str = 'gpt-4o-mini', engine: str = 'davinci-codex', max_tokens: int = 16384, api_key: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, **kwargs: Any) -> None:
         super().__init__(model_name=model_name)
         self.model_name = model_name
         self.engine = engine
@@ -140,25 +247,27 @@ class ChatGPT(LLM):
         self.multimodal = multimodal
         self.ignore_quota = ignore_quota
         
-    def stream(self, messages, temperature = 0.6, **kwargs):
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
         
         messages = convert_to_multimodal_format(messages)
+        if 'gpt-5' in self.model_name:
+            temperature = None
 
         start = time.time()
-        if 'gpt-5' in self.model_name:
-            completion = self.client.chat.completions.create(
+        if tools is not None and len(tools) > 0:
+            completion = _openai_tool_calling_stream(
+                client = self.client,
                 model = self.model_name,
                 messages = messages,
-                stream = True,
                 stream_options={"include_usage": True},
                 **kwargs
             )
         else:
-            completion = self.client.chat.completions.create(
+            completion = _openai_text_completion_stream(
+                client = self.client,
                 model = self.model_name,
                 messages = messages,
                 temperature=temperature,
-                stream = True,
                 stream_options={"include_usage": True},
                 **kwargs
             )
@@ -172,44 +281,35 @@ class ChatGPT(LLM):
         
             
 
-    def __call__(self, messages, temperature = 0.4, response_format=None, count_tokens=False, tools = None, **kwargs):
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, count_tokens: bool = False, tools: Optional[List[Any]] = None, **kwargs: Any) -> Union[str, List[Any]]:
         
         messages = convert_to_multimodal_format(messages)
+        if 'gpt-5' in self.model_name:
+            temperature = None
+            
+        if tools is not None and len(tools) > 0:
+            return self.tool_calling(
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
 
         try:
             start = time.time()
-            if response_format is not None: 
-                completion = self.client.beta.chat.completions.parse(
-                    model = self.model_name,
-                    messages = messages,
-                    response_format = response_format,
-                    stream = False,
-                    **kwargs
-                )
-            elif 'gpt-5' in self.model_name:
-                completion = self.client.chat.completions.create(
-                    model = self.model_name,
-                    messages = messages,
-                    stream = False,
-                    tools = tools,
-                    **kwargs
-                )    
-            else:
-                
-                completion = self.client.chat.completions.create(
-                    model = self.model_name,
-                    messages = messages,
-                    temperature=temperature,
-                    stream = False,
-                    tools = tools,
-                    **kwargs
-                )    
-            
-            response = completion.choices[0].message
-            
+            completion = _openai_text_completion(
+                client = self.client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                response_format=response_format,
+                **kwargs
+            )
+        
+            response = completion.choices[0].message    
             logger.info(completion.usage)
-            self.input_token += completion.usage.prompt_tokens
-            self.output_token += completion.usage.completion_tokens
+                        
             end = time.time()
             logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
@@ -217,25 +317,53 @@ class ChatGPT(LLM):
             # Return the parsed response if it exists
             if response_format is not None:
                 if response.parsed:
-                    return output_with_usage(response.parsed, completion.usage, count_tokens)
+                    return response.parsed
                 elif response.refusal:
-                    return output_with_usage(response.refusal, completion.usage, count_tokens)
-            
-            # Function calling
-            elif isinstance(tools, list) and len(tools) > 0:
-                return output_with_usage(response.tool_calls, completion.usage, count_tokens)
-            
-            return output_with_usage(response.content, completion.usage, count_tokens)
+                    return response.refusal
+        
+            return response.content
         
         except Exception as e:
             # Handle edge cases
-            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
             if self.ignore_quota:
                 return ''
             else:
                 raise e
+            
+    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> List[Any]:
+        messages = convert_to_multimodal_format(messages)
+        if 'gpt-5' in self.model_name:
+            temperature = None
+            
+        try:
+            start = time.time()
+            completion = _openai_tool_calling(
+                client = self.client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
+            
+            tool_calls = []
+            for choice in completion.choices[0].message.tool_calls:
+                tool_calls.append(choice.model_dump())
+            
+            end = time.time()
+            logger.info(f"Completion time of {self.model_name}: {end - start}s")
+
+            return tool_calls
+        except Exception as e:
+            # Handle edge cases
+            logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
+            if self.ignore_quota:
+                return []
+            else:
+                raise e
     
-    def batch_call(self, list_messages, key_list=[], prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10):   
+    def batch_call(self, list_messages: List[Any], key_list: List[str] = [], prefix: str = '', example_per_batch: int = 100, sleep_time: int = 10, sleep_step: int = 10) -> None:   
         
         """
         Batch call for ChatGPT
@@ -287,7 +415,7 @@ class ChatGPT(LLM):
                 file.write(json.dumps({"id": batch_job.id}))
                 file.write('\n')
     
-    def recall_local_batch(self, prefix = '' ):
+    def recall_local_batch(self, prefix: str = '') -> List[Dict[str, Any]]:
         batch_ids = []
         if os.path.exists(f'batch/batch-{prefix}.jsonl'):
             with open(f'batch/batch-{prefix}.jsonl', 'r', encoding='utf-8') as file:
@@ -304,7 +432,7 @@ class ChatGPT(LLM):
                     })
         return batch_ids
 
-    def recall_online_batch(self, prefix = ''):
+    def recall_online_batch(self, prefix: str = '') -> List[Dict[str, Any]]:
         batch_ids = []
         batches = self.client.batches.list()
         for batch in batches:
@@ -315,7 +443,7 @@ class ChatGPT(LLM):
                 })
         return batch_ids
 
-    def get_successful_messages(self, batch_ids: list[dict]) -> list[dict]:
+    def get_successful_messages(self, batch_ids: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """
         Get successful messages from batch
         Batch_ids: list of batch ids (from recall_local_batch or recall_online_batch)
@@ -343,20 +471,20 @@ class ChatGPT(LLM):
 
         return successful_messages
 
-    def retrieve(self, batch_id):
+    def retrieve(self, batch_id: str) -> Any:
         return self.client.batches.retrieve(batch_id)
     
 
 from collections import deque
 
 class ClientOpenAIWrapper:
-    def __init__(self, host: str, model_name: str, api_key: str, rpm: int, **kwargs):
+    def __init__(self, host: str, model_name: str, api_key: str, rpm: int, **kwargs: Any) -> None:
         self.llm = OpenAIWrapper(host = host, model_name=model_name, api_key=api_key, **kwargs)
         self.current_request = 0
         self.rpm = rpm
-        self.request_time = deque(maxlen=rpm)
+        self.request_time: deque = deque(maxlen=rpm)
 
-    def check_max_rpm(self):
+    def check_max_rpm(self) -> bool:
         current_time = time.time() 
         last_1_min = current_time - 60
         if len(self.request_time) == self.rpm:
@@ -378,20 +506,20 @@ class ClientOpenAIWrapper:
             self.request_time.append(current_time)
             return False
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.llm(*args, **kwargs)
     
-    def stream(self,*args, **kwargs):
+    def stream(self,*args: Any, **kwargs: Any) -> Any:
         return self.llm.stream(*args, **kwargs)
 
-    def __str___(self):
+    def __str__(self) -> str:
         return f"ClientOpenAIWarrper(model_name={self.llm.model_name}, rpm={self.rpm})"
     
 
 class RotateOpenAIWrapper:
 
 
-    def __init__(self, host: str, model_name: str, api_keys: list[str] = None, api_prefix = None, rpm: int = 10, **kwargs):
+    def __init__(self, host: str, model_name: str, api_keys: Optional[List[str]] = None, api_prefix: Optional[str] = None, rpm: int = 10, **kwargs: Any) -> None:
         self._initialized = True
         self.model_name = model_name
         if not api_keys:
@@ -401,11 +529,11 @@ class RotateOpenAIWrapper:
 
         # Randomize the api_keys
         random.shuffle(self.__api_keys)
-        self.queue = deque()
+        self.queue: deque = deque()
         for api_key in self.__api_keys:
             self.queue.append(ClientOpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
 
-    def try_request(self, client,  **kwargs):
+    def try_request(self, client: ClientOpenAIWrapper,  **kwargs: Any) -> Tuple[Any, bool]:
         try:
             print(client)
             return client( **kwargs), True
@@ -413,7 +541,7 @@ class RotateOpenAIWrapper:
             logger.error(f"Error: {e}")
             return '', False
 
-    def __call__(self, messages, **kwargs):
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], **kwargs: Any) -> Any:
         # Check if the first client in the queue has reached the maximum rpm
         client = self.queue.popleft()
         count = 0
@@ -453,7 +581,7 @@ class RotateOpenAIWrapper:
             
         return response
         
-    def stream(self, messages, **kwargs):
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], **kwargs: Any) -> Generator[str, None, None]:
         client = self.queue.popleft()
         count = 0
         max_count = len(self.queue) * 2
@@ -470,8 +598,8 @@ class RotateOpenAIWrapper:
         self.queue.append(client)
         return client.stream(messages = messages, **kwargs)
              
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self.__api_keys)})"
     
-    def __str__(self):
+    def __str__(self) -> str:
         return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self.__api_keys)})"

@@ -11,7 +11,7 @@ import os
 from PIL import Image
 import base64
 from io import BytesIO
-from typing import Union
+from typing import Dict, List, Union
 import logging
 
 logger = logging.getLogger(__name__)
@@ -218,28 +218,24 @@ def convert_llama_format(data, has_system=True):
 
 
 
-def convert_to_multimodal_format(messages, has_system=True):
+def convert_to_multimodal_format(messages: List[Dict[str, Union[str, List[Dict]]]], has_system=True):
     new_messages = []
     if not has_system:
         messages = convert_non_system_prompts(messages)
     for i, item in enumerate(messages):
-        role = item["role"]
-        content = item["content"]
+        role = item.get("role")
+        content = item.get("content")
 
         if role == 'system':
-            text_content = ''
             if isinstance(content, str):
                 content = [{'type': 'text', 'text': content}]
-            # elif isinstance(content, list):
-            #     for c in content:
-            #         if c.get('type') == 'text':
-            #             text_content += c['text'] + '\n'
-            #
-            new_messages.append({"role": role, "content": content})
+
+            item['content'] = content
+            new_messages.append(item)
             continue
 
         if isinstance(content, str):
-            new_messages.append({"role": role, "content": [{'type':'text', 'text':content}]})
+            item['content'] = [{'type':'text', 'text':content}]
         elif isinstance(content, list):
             new_content = []
             for c in content:
@@ -266,15 +262,15 @@ def convert_to_multimodal_format(messages, has_system=True):
                     
                 else:
                     new_content.append(c)
-            new_messages.append({"role": role, "content": new_content})
-        else:
-            new_messages.append({"role": role, "content": content})
+            item['content'] = new_content
+        
+        new_messages.append(item)
                
     return new_messages
 
 
 
-def convert_non_system_prompts(messages: Union[list, str]) -> Union[list, dict]:
+def convert_non_system_prompts(messages: List[Dict[str, Union[str, List[Dict]]]]) -> List[Dict[str, Union[str, List[Dict]]]]:
     new_messages = []
     if len(messages) == 0:
         raise ValueError("Messages list is empty")
