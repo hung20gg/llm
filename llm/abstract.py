@@ -12,14 +12,29 @@ class LLM:
         raise NotImplementedError()
 
     def invoke(self, message, **kwargs):
-        self.__call__(message, **kwargs)
+        return self.__call__(message, **kwargs)
+
+    async def ainvoke(self, message, **kwargs):
+        raise NotImplementedError()
     
     def stream(self, message, **kwargs):
         raise NotImplementedError()
     
-    def generate(self, message, **kwargs):
-        self.stream(message, **kwargs)
+    async def astream(self, message, **kwargs):
+        raise NotImplementedError()
     
+    def generate(self, message, **kwargs):
+        return self.stream(message, **kwargs)
+
+    async def agenerate(self, message, **kwargs):
+        return await self.astream(message, **kwargs)
+    
+    def tool_calling(self, message, **kwargs):
+        raise NotImplementedError()
+    
+    async def tool_calling_async(self, message, **kwargs):
+        raise NotImplementedError()
+
     def batch_call(self, messages, **kwargs):
         raise NotImplementedError()
     

@@ -4,8 +4,8 @@ import sys
 import random
 import time
 from uuid import uuid4
-from openai import OpenAI
-from typing import Optional, List, Dict, Any, Union, Iterator, Generator, Tuple
+from openai import OpenAI, AsyncOpenAI
+from typing import Optional, List, Dict, Any, Union, Iterator, Generator, Tuple, AsyncIterator
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
@@ -34,7 +34,7 @@ def output_with_usage(response: Any, usage: Any, count_tokens: bool = False) -> 
     return response
 
 
-def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Any]:
+def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Optional[Any]]:
     try:
         completion = client.chat.completions.create(
             stream=True,
@@ -46,16 +46,55 @@ def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[An
         logger.error(f"Error in chat completion stream: {e}")
         return
 
-
-def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Union[Any, None]:
+async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: Any) -> AsyncIterator[Optional[Any]]:
     try:
-        completion = client.chat.completions.create(
+        completion = await client.chat.completions.create(
+            stream=True,
             **kwargs
         )
-        return completion
+        for chunk in completion:
+            yield chunk
     except Exception as e:
-        logger.error(f"Error in chat completion: {e}")
-        return None
+        logger.error(f"Error in chat completion stream: {e}")
+        return
+
+def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Any:
+        
+    completion = client.chat.completions.create(
+        **kwargs
+    )
+    
+    response = completion.choices[0].message    
+    logger.info(completion.usage)
+    
+    # Return the parsed response if it exists
+    if kwargs.get('response_format') is not None:
+        if response.parsed:
+            return response.parsed
+        elif response.refusal:
+            return response.refusal
+
+    return response.content
+
+
+async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> Any:
+        
+    completion = await client.chat.completions.create(
+        **kwargs
+    )
+    
+    response = completion.choices[0].message    
+    logger.info(completion.usage)
+    
+    # Return the parsed response if it exists
+    if kwargs.get('response_format') is not None:
+        if response.parsed:
+            return response.parsed
+        elif response.refusal:
+            return response.refusal
+
+    return response.content
+
     
     
 def _openai_tool_calling_stream(client: OpenAI, **kwargs: Any) -> Iterator[Any]:
@@ -66,27 +105,55 @@ def _openai_tool_calling_stream(client: OpenAI, **kwargs: Any) -> Iterator[Any]:
         )
 
         for chunk in stream_response:
+            print(chunk)
             yield chunk
     except Exception as e:
         logger.error(f"Error in tool streaming calling: {e}")
         return
 
 
-def _openai_tool_calling(client: OpenAI, stream: bool = False, **kwargs: Any) -> Union[Iterator[Any], Any, None]:
+def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
 
-    try:
-        completion  = client.chat.completions.create(
-            **kwargs
-        )
-        return completion 
-    except Exception as e:
-        logger.error(f"Error in tool calling: {e}")
-        return None
+    completion  = client.chat.completions.create(
+        **kwargs
+    )
+    print(completion)
+    content = ""
+    tool_calls = []
+    if completion.choices[0].message.tool_calls is not None:
+        for choice in completion.choices[0].message.tool_calls:
+            tool_calls.append(choice.model_dump())
+    content = completion.choices[0].message.content
+
+    return {
+        "content": content,
+        "tool_calls": tool_calls
+    }
+    
+async def _openai_tool_calling_async(client: AsyncOpenAI, **kwargs: Any) -> Dict[str, Any]:
+    completion  = await client.chat.completions.create(
+        **kwargs
+    )
+    print(completion)
+    content = ""
+    tool_calls = []
+    if completion.choices[0].message.tool_calls is not None:
+        for choice in completion.choices[0].message.tool_calls:
+            tool_calls.append(choice.model_dump())
+    content = completion.choices[0].message.content
+
+    return {
+        "content": content,
+        "tool_calls": tool_calls
+    }
 
 
 class OpenAIWrapper(LLM):
     def __init__(self, host: str, model_name: str, api_key: Optional[str] = None, api_prefix: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, system: bool = True, **kwargs: Any) -> None:
-        super().__init__(model_name=model_name)
+        self.__initiate_client(host, api_key, api_prefix, random_key, multimodal, ignore_quota, system, **kwargs)
+        
+        
+    def __initiate_client(self, host: str, model_name: str, api_key: Optional[str] = None, api_prefix: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, system: bool = True, **kwargs: Any) -> None:
         self.host = host
         self.model_name = model_name
         self.api_key = api_key
@@ -100,11 +167,12 @@ class OpenAIWrapper(LLM):
 
         self.__api_key = str(api_key)
         self.client = OpenAI(api_key=api_key, base_url=host)
+        self.async_client = AsyncOpenAI(api_key=api_key, base_url=host)
         self.multimodal = multimodal
         self.ignore_quota = ignore_quota
         self.system = system
 
-    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[str]]:
         
 
         # Disable system prompt (for gemma or llama 3.2)
@@ -141,9 +209,37 @@ class OpenAIWrapper(LLM):
         except Exception as e:
             logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
             return None
+        
+    
+    async def astream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[str]]:
+
+        # Disable system prompt (for gemma or llama 3.2)
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+
+        try:
+            completion = await _openai_text_completion_stream_async(
+                        client = self.async_client,
+                        model = self.model_name,
+                        messages = messages,
+                        temperature=temperature,
+                        **kwargs
+                    )
+            if completion:
+                async for chunk in completion:
+                    content = chunk.choices[0].delta.content
+                    if content:
+                        yield content
+        
+        except Exception as e:
+            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            return
                     
     
-    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, count_tokens: bool = False, tools: Optional[List[Any]] = None, **kwargs: Any) -> Union[str, Dict[str, Any]]:
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -151,142 +247,6 @@ class OpenAIWrapper(LLM):
         if self.multimodal:
             messages = convert_to_multimodal_format(messages)
 
-        start = time.time()
-        try:
-            if tools is not None and len(tools) > 0:
-                completion = _openai_tool_calling(
-                    client = self.client,
-                    model = self.model_name,
-                    messages = messages,
-                    temperature=temperature,
-                    tools = tools,
-                    **kwargs
-                )
-            else:
-                completion = _openai_text_completion(
-                    client = self.client,
-                    model = self.model_name,
-                    messages = messages,
-                    temperature=temperature,
-                    tools = tools,
-                )
-                
-        except Exception as e:
-
-            if not self.multimodal:
-                logger.warning("Switching to multimodal")
-                self.multimodal = True
-                return self(messages, temperature, count_tokens)
-
-            else:
-                
-                # Handle edge cases
-                logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
-                if self.ignore_quota:
-                    return ''
-                else:
-                    raise e
-
-        end = time.time()
-        logger.info(f"Completion time of {self.model_name}: {end - start}s")
-
-        
-        return completion.choices[0].message.content
-    
-    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> List[Any]:
-        
-        if not self.system:
-            messages = convert_non_system_prompts(messages)
-
-        if self.multimodal:
-            messages = convert_to_multimodal_format(messages)
-            
-        try:
-            start = time.time()
-            completion = _openai_tool_calling(
-                client = self.client,
-                model = self.model_name,
-                messages = messages,
-                temperature=temperature,
-                tools = tools,
-                **kwargs
-            )
-            
-            tool_calls = []
-            for choice in completion.choices[0].message.tool_calls:
-                tool_calls.append(choice.model_dump())
-            
-            end = time.time()
-            logger.info(f"Completion time of {self.model_name}: {end - start}s")
-
-            return tool_calls
-        except Exception as e:
-            # Handle edge cases
-            logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
-            if self.ignore_quota:
-                return []
-            else:
-                raise e
-    
-class ChatGPT(LLM):
-    def __init__(self, model_name: str = 'gpt-4o-mini', engine: str = 'davinci-codex', max_tokens: int = 16384, api_key: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, **kwargs: Any) -> None:
-        super().__init__(model_name=model_name)
-        self.model_name = model_name
-        self.engine = engine
-
-        if api_key is None:
-            api_key=os.getenv('OPENAI_API_KEY')
-        elif random_key:
-            possible_keys = get_all_api_key('OPENAI_API_KEY')
-            api_key = random.choice(possible_keys)
-
-        self.__api_key = api_key
-        self.client = OpenAI(api_key=api_key)
-        self.model_token = max_tokens
-        self.max_tokens = min(self.model_token, max_tokens)
-        self.multimodal = multimodal
-        self.ignore_quota = ignore_quota
-        
-    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
-        
-        messages = convert_to_multimodal_format(messages)
-        if 'gpt-5' in self.model_name:
-            temperature = None
-
-        start = time.time()
-        if tools is not None and len(tools) > 0:
-            completion = _openai_tool_calling_stream(
-                client = self.client,
-                model = self.model_name,
-                messages = messages,
-                stream_options={"include_usage": True},
-                **kwargs
-            )
-        else:
-            completion = _openai_text_completion_stream(
-                client = self.client,
-                model = self.model_name,
-                messages = messages,
-                temperature=temperature,
-                stream_options={"include_usage": True},
-                **kwargs
-            )
-        for chunk in completion:
-            content = chunk.choices
-            if len(content) > 0:
-                yield content[0].delta.content
-                
-        end = time.time()
-        logger.info(f"Completion time of {self.model_name}: {end - start}s")
-        
-            
-
-    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, count_tokens: bool = False, tools: Optional[List[Any]] = None, **kwargs: Any) -> Union[str, List[Any]]:
-        
-        messages = convert_to_multimodal_format(messages)
-        if 'gpt-5' in self.model_name:
-            temperature = None
-            
         if tools is not None and len(tools) > 0:
             return self.tool_calling(
                 messages = messages,
@@ -295,73 +255,196 @@ class ChatGPT(LLM):
                 **kwargs
             )
 
+        start = time.time()
+        try:
+
+            content = _openai_text_completion(
+                client = self.client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                response_format = response_format,
+                **kwargs
+            )
+                
+        except Exception as e:
+
+            if not self.multimodal:
+                logger.warning("Switching to multimodal")
+                self.multimodal = True
+                return self(messages, temperature, response_format, tools, **kwargs)
+
+            else:
+                # Handle edge cases
+                logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+                return None
+
+        end = time.time()
+        logger.info(f"Completion time of {self.model_name}: {end - start}s")
+        
+        return content
+    
+    async def ainvoke(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
+        
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+
+        if tools is not None and len(tools) > 0:
+            return await self.tool_calling_async(
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
+
+        start = time.time()
+        try:
+
+            content = await _openai_text_completion_async(
+                client = self.async_client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                response_format = response_format,
+                **kwargs
+            )
+                
+        except Exception as e:
+
+            if not self.multimodal:
+                logger.warning("Switching to multimodal")
+                self.multimodal = True
+                return self(messages, temperature, response_format, tools, **kwargs)
+
+            else:
+                # Handle edge cases
+                logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+                return
+
+        end = time.time()
+        logger.info(f"Completion time of {self.model_name}: {end - start}s")
+        
+        return content
+    
+    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
+            
         try:
             start = time.time()
-            completion = _openai_text_completion(
+            tool_call_result = _openai_tool_calling(
                 client = self.client,
                 model = self.model_name,
                 messages = messages,
                 temperature=temperature,
                 tools = tools,
-                response_format=response_format,
                 **kwargs
             )
-        
-            response = completion.choices[0].message    
-            logger.info(completion.usage)
-                        
+            
             end = time.time()
             logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
-            
-            # Return the parsed response if it exists
-            if response_format is not None:
-                if response.parsed:
-                    return response.parsed
-                elif response.refusal:
-                    return response.refusal
-        
-            return response.content
-        
+            return tool_call_result
         except Exception as e:
             # Handle edge cases
             logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
-            if self.ignore_quota:
-                return ''
-            else:
-                raise e
+            return None
+        
+    async def tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)
             
-    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> List[Any]:
+        try:
+            start = time.time()
+            tool_call_result = await _openai_tool_calling_async(
+                client = self.async_client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
+
+            print(tool_call_result)
+            
+            end = time.time()
+            logger.info(f"Completion time of {self.model_name}: {end - start}s")
+
+            return tool_call_result
+        except Exception as e:
+            # Handle edge cases
+            api_key_suffix = getattr(self, '_OpenAIWrapper__api_key', getattr(self, '_ChatGPT__api_key', 'unknown'))
+            logger.error(f"Error with API Key ending {str(api_key_suffix)[-5:]} : {e}")
+            return
+
+class ChatGPT(OpenAIWrapper):
+    def __init__(self, model_name: str = 'gpt-4.1-mini', engine: str = 'davinci-codex', max_tokens: int = 16384, api_key: Optional[str] = None,  **kwargs: Any) -> None:
+        self.__initialize_client(model_name, engine, max_tokens, api_key, **kwargs)
+        
+    def __initialize_client(self, model_name: str = 'gpt-4.1-mini', engine: str = 'davinci-codex', max_tokens: int = 16384, api_key: Optional[str] = None, **kwargs: Any) -> None:
+        self.model_name = model_name
+        self.engine = engine
+
+        if api_key is None:
+            api_key=os.getenv('OPENAI_API_KEY')
+
+        self.__api_key = api_key
+        self.client = OpenAI(api_key=api_key)
+        self.async_client = AsyncOpenAI(api_key=api_key)
+        self.model_token = max_tokens
+        self.max_tokens = min(self.model_token, max_tokens)
+        self.multimodal = True
+        self.system = True
+        
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
         messages = convert_to_multimodal_format(messages)
         if 'gpt-5' in self.model_name:
             temperature = None
+        return super().stream(messages, temperature, tools, **kwargs)
             
-        try:
-            start = time.time()
-            completion = _openai_tool_calling(
-                client = self.client,
-                model = self.model_name,
-                messages = messages,
-                temperature=temperature,
-                tools = tools,
-                **kwargs
-            )
+    async def astream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
+        messages = convert_to_multimodal_format(messages)
+        if 'gpt-5' in self.model_name:
+            temperature = None
+        return await super().astream(messages, temperature, tools, **kwargs)
             
-            tool_calls = []
-            for choice in completion.choices[0].message.tool_calls:
-                tool_calls.append(choice.model_dump())
-            
-            end = time.time()
-            logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
-            return tool_calls
-        except Exception as e:
-            # Handle edge cases
-            logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
-            if self.ignore_quota:
-                return []
-            else:
-                raise e
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+        
+        if 'gpt-5' in self.model_name:
+            temperature = None
+        return super().__call__(messages, temperature, response_format, tools, **kwargs)
+            
+    async def ainvoke(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+        
+        if 'gpt-5' in self.model_name:
+            temperature = None
+        return await super().ainvoke(messages, temperature, response_format, tools, **kwargs)
+            
+
+    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        
+        if 'gpt-5' in self.model_name:
+            temperature = None  
+        return super().tool_calling(messages, temperature, tools, **kwargs)
+    
+    async def tool_calling_async(self, messages, temperature = 0.6, tools = None, **kwargs):
+        
+        if 'gpt-5' in self.model_name:
+            temperature = None 
+        return await super().tool_calling_async(messages, temperature, tools, **kwargs)
+    
     
     def batch_call(self, list_messages: List[Any], key_list: List[str] = [], prefix: str = '', example_per_batch: int = 100, sleep_time: int = 10, sleep_step: int = 10) -> None:   
         
