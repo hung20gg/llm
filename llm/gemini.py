@@ -7,6 +7,7 @@ from uuid import uuid4
 from google import genai
 from google.genai import types
 from google.genai.types import HarmCategory, HarmBlockThreshold
+from typing import Optional, List, Dict, Any, Union, Iterator, Generator, Tuple, AsyncIterator
 
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -63,7 +64,7 @@ class Gemini(LLM):
         self.ignore_quota = igrone_quota
         self.system = system
             
-    def stream(self, messages, temperature=0.8, **config):
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: int = 0.6, tools: Optional[List[Any]] = None, **config):
         if not self.system:
             messages = convert_non_system_prompts(messages)
         
@@ -87,7 +88,7 @@ class Gemini(LLM):
             yield chunk.text
             
     @staticmethod 
-    def _convert_component_to_gemini_format(contents): 
+    def _convert_component_to_gemini_format(contents: List[Union[str, Dict[str, Any]]]): 
         parts = []
         for part in contents:
             if isinstance(part, str):
@@ -119,7 +120,7 @@ class Gemini(LLM):
         return parts
 
     @staticmethod
-    def _convert_component_to_gemini_format_json(contents): 
+    def _convert_component_to_gemini_format_json(contents: List[Union[str, Dict[str, Any]]]): 
         parts = []
         for part in contents:
             if isinstance(part, str):
@@ -146,6 +147,7 @@ class Gemini(LLM):
                     raise ValueError(f"Invalid type: {type_}")
         return parts 
     
+
     def _convert_messages_to_gemini_format_with_object(self, messages):
         
         contents = []
@@ -199,8 +201,58 @@ class Gemini(LLM):
             }
         }
     
+    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: List[Any] = [], json_format: bool=False, **config):
+
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        start = time.time()
+
+        gemini_conversion = self.convert_conversation_to_gemini_format(messages, json_format=json_format)
+        contents = gemini_conversion['contents']
+        system_instruction = gemini_conversion['generation_config']['system_instruction']
+
+        tools = types.Tool(function_declarations=[tools])
+        
+        config = types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                safety_settings=self.safety_settings,
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(
+                    disable=True
+                ),
+                tools=tools
+                **config
+            )
+        try:
+            response = self.client.models.generate_content(model = self.model_name, 
+                                                        contents = contents, 
+                                                        config=config)
+                                                                                                           
+            end = time.time()
+            logger.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
+            
+            content = response.candidates[0].content.parts[0].text
+            tool_calls = []
+            if response.candidates[0].content.parts[0].function_call is not None:
+                for choice in response.candidates[0].content.parts[0].function_call:
+                    tool_calls.append(choice.model_dump())
+
+            print(response)
+
+            return {
+                "content": content,
+                "tool_calls": tool_calls
+            }
+        
+        except Exception as e:
+
+
+            # Log the error
+            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            return None
+
     
-    def __call__(self, messages, temperature=0.4, tools = [], count_tokens=False, json_format=False, **config):
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: Optional[List[Any]] = None, json_format: bool=False, **config):
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -213,29 +265,9 @@ class Gemini(LLM):
 
         # Check function calling:
         bool_function = False
-        functions = []
-        if len(tools) > 0:
-            for tool in tools:
-                if callable(tool):
-                    bool_function = True
-                    functions.append(tool)
-
-        if bool_function:
-            logger.info(f"Number of functions: {len(tools)}. Callables: {len(functions)}")
-            
-            
-            config = types.GenerateContentConfig(
-                tools = functions,
-                system_instruction=system_instruction,
-                safety_settings=self.safety_settings,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True
-                ),
-                tool_config=types.ToolConfig(
-                    function_calling_config=types.FunctionCallingConfig(mode='ANY')
-                ),
-                **config
-            )
+        if tools:
+            return self.tool_calling(messages, temperature, tools, json_format, **config)
+        
         else:
             config=types.GenerateContentConfig(
                 candidate_count=1,
@@ -255,24 +287,13 @@ class Gemini(LLM):
             end = time.time()
             logger.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
             
-            if count_tokens:
-                return {
-                    "response": response.candidates[0].content.parts[0].text,
-                    "input_token": response.usage_metadata.prompt_token_count,
-                    "output_token": response.usage_metadata.candidates_token_count,
-                    "total_token": response.usage_metadata.total_token_count
-                }
-            else:
-                return response.candidates[0].content.parts[0].text
+            return response.candidates[0].content.parts[0].text
         except Exception as e:
 
 
             # Log the error
             logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
-            if self.ignore_quota:
-                return ''
-            else:
-                raise e
+            return None
 
     
     def batch_call(self, list_messages, key_list=[], temperature=0.4, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10, **config):
