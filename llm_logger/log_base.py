@@ -2,6 +2,7 @@ import threading
 from uuid import uuid4
 import os
 from PIL import Image
+import asyncio
 import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
 class LogBase:
@@ -91,6 +92,36 @@ class LogBase:
 
         return response
 
+    def tool_calling(self, messages: list[dict], tools: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+        """
+        Call the LLM with tool calling and log the messages.
+        
+        :param messages: List of messages to log.
+        :param tools: List of tools available for the LLM.
+        :param images_path: Path to the image file(s).
+        :param run_name: Name of the run.
+        :param tag: Tag for the log entry.
+        """
+        save_messages = messages.copy()
+        response = self.llm.tool_calling(messages, tools=tools, **kwargs)
+
+        content = response.get('content')
+        tool_calls = response.get('tool_calls')
+
+        save_messages.append({
+            'role': 'assistant',
+            'content': content,
+            'tool_calls': tool_calls
+        })
+
+        logging_thread = threading.Thread(
+            target=self.log,
+            args=(save_messages, images_path, run_name, tag),
+            daemon=True  # Allow program to exit without waiting for this thread
+        )
+        logging_thread.start()
+
+        return response
 
     def stream(self, messages: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
         """
@@ -113,6 +144,111 @@ class LogBase:
         save_messages.append({
             'role': 'assistant',
             'content': response
+        })
+
+        logging_thread = threading.Thread(
+            target=self.log,
+            args=(save_messages, images_path, run_name, tag),
+            daemon=True  # Allow program to exit without waiting for this thread
+        )
+        logging_thread.start()
+
+    def astream(self, messages: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+        """
+        Asynchronously stream the response from the LLM and log it.
+        
+        :param messages: List of messages to log.
+        :param images_path: Path to the image file(s).
+        :param run_name: Name of the run.
+        :param tag: Tag for the log entry.
+        """
+        
+
+        async def stream_and_log():
+            save_messages = messages.copy()
+            response_stream = self.llm.astream(messages, **kwargs)
+            response = ""
+
+            async for chunk in response_stream:
+                if isinstance(chunk, str):
+                    response += chunk
+                    yield chunk
+
+            save_messages.append({
+                'role': 'assistant',
+                'content': response
+            })
+
+            logging_thread = threading.Thread(
+                target=self.log,
+                args=(save_messages, images_path, run_name, tag),
+                daemon=True  # Allow program to exit without waiting for this thread
+            )
+            logging_thread.start()
+
+        return stream_and_log()
+
+
+    async def tool_calling_async(self, messages: list[dict], tools: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+        """
+        Call the LLM with tool calling asynchronously and log the messages.
+        
+        :param messages: List of messages to log.
+        :param tools: List of tools available for the LLM.
+        :param images_path: Path to the image file(s).
+        :param run_name: Name of the run.
+        :param tag: Tag for the log entry.
+        """
+        save_messages = messages.copy()
+        response = await self.llm.tool_calling_async(messages, tools=tools, **kwargs)
+
+        content = response.get('content')
+        tool_calls = response.get('tool_calls')
+
+        save_messages.append({
+            'role': 'assistant',
+            'content': content,
+            'tool_calls': tool_calls
+        })
+
+        logging_thread = threading.Thread(
+            target=self.log,
+            args=(save_messages, images_path, run_name, tag),
+            daemon=True  # Allow program to exit without waiting for this thread
+        )
+        logging_thread.start()
+
+        return response
+    
+    def stream_tool_calling(self, messages: list[dict], tools: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+        """
+        Stream the response from the LLM with tool calling and log it.
+        
+        :param messages: List of messages to log.
+        :param tools: List of tools available for the LLM.
+        :param images_path: Path to the image file(s).
+        :param run_name: Name of the run.
+        :param tag: Tag for the log entry.
+        """
+        save_messages = messages.copy()
+        response_stream = self.llm.stream_tool_calling(messages, tools=tools, **kwargs)
+        response = ""
+        tool_calls = []
+
+
+        for chunk in response_stream:
+            if isinstance(chunk, dict):
+                if chunk.get('type') == 'tool_call':
+                    tool_calls.append(chunk)
+                elif chunk.get('type') == 'text':
+                    response += chunk.get('text', '')
+                    
+            yield chunk
+
+        save_messages.append({
+            'role': 'assistant',
+            'content': response,
+            'tool_calls': tool_calls
         })
 
         logging_thread = threading.Thread(

@@ -52,7 +52,7 @@ async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: An
             stream=True,
             **kwargs
         )
-        for chunk in completion:
+        async for chunk in completion:
             yield chunk
     except Exception as e:
         logger.error(f"Error in chat completion stream: {e}")
@@ -95,29 +95,12 @@ async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> A
 
     return response.content
 
-    
-    
-def _openai_tool_calling_stream(client: OpenAI, **kwargs: Any) -> Iterator[Any]:
-    try:
-        stream_response = client.chat.completions.create(
-            stream=True,
-            **kwargs
-        )
-
-        for chunk in stream_response:
-            print(chunk)
-            yield chunk
-    except Exception as e:
-        logger.error(f"Error in tool streaming calling: {e}")
-        return
-
 
 def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
 
     completion  = client.chat.completions.create(
         **kwargs
     )
-    print(completion)
     content = ""
     tool_calls = []
     if completion.choices[0].message.tool_calls is not None:
@@ -134,7 +117,6 @@ async def _openai_tool_calling_async(client: AsyncOpenAI, **kwargs: Any) -> Dict
     completion  = await client.chat.completions.create(
         **kwargs
     )
-    print(completion)
     content = ""
     tool_calls = []
     if completion.choices[0].message.tool_calls is not None:
@@ -165,7 +147,7 @@ class OpenAIWrapper(LLM):
             possible_keys = get_all_api_key(api_prefix)
             api_key = random.choice(possible_keys)
 
-        self.__api_key = str(api_key)
+        self._api_key = str(api_key)
         self.client = OpenAI(api_key=api_key, base_url=host)
         self.async_client = AsyncOpenAI(api_key=api_key, base_url=host)
         self.multimodal = multimodal
@@ -184,9 +166,7 @@ class OpenAIWrapper(LLM):
 
         try:
             if tools is not None and len(tools) > 0:
-                completion = _openai_tool_calling_stream(
-                    client = self.client,
-                    model = self.model_name,
+                return self.stream_tool_calling(
                     messages = messages,
                     temperature=temperature,
                     tools = tools,
@@ -207,7 +187,7 @@ class OpenAIWrapper(LLM):
                         yield content
         
         except Exception as e:
-            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
             return None
         
     
@@ -235,7 +215,7 @@ class OpenAIWrapper(LLM):
                         yield content
         
         except Exception as e:
-            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
             return
                     
     
@@ -276,7 +256,7 @@ class OpenAIWrapper(LLM):
 
             else:
                 # Handle edge cases
-                logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+                logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
                 return None
 
         end = time.time()
@@ -321,7 +301,7 @@ class OpenAIWrapper(LLM):
 
             else:
                 # Handle edge cases
-                logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+                logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
                 return
 
         end = time.time()
@@ -354,7 +334,7 @@ class OpenAIWrapper(LLM):
             return tool_call_result
         except Exception as e:
             # Handle edge cases
-            logger.error(f"Error with API Key ending {str(self.__api_key)[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {str(self._api_key)[-5:]} : {e}")
             return None
         
     async def tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
@@ -384,9 +364,153 @@ class OpenAIWrapper(LLM):
             return tool_call_result
         except Exception as e:
             # Handle edge cases
-            api_key_suffix = getattr(self, '_OpenAIWrapper__api_key', getattr(self, '_ChatGPT__api_key', 'unknown'))
+            api_key_suffix = getattr(self, '_OpenAIWrapper_api_key', getattr(self, '_ChatGPT_api_key', 'unknown'))
             logger.error(f"Error with API Key ending {str(api_key_suffix)[-5:]} : {e}")
             return
+
+
+    def stream_tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
+        
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)    
+
+        try:
+            completion = _openai_text_completion_stream(
+                client = self.client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
+
+            function_sample = {
+                'id': None,
+                'function': {
+                    'name': None,
+                    'arguments': ''
+                },
+                'type': 'function'
+            }
+            # Fix both content and function
+            if completion:
+                current_type = None
+                current_func = None
+                for chunk in completion:
+                    if chunk.choices[0].finish_reason is not None:
+                        if current_func is not None:
+                            current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
+
+                            yield current_func
+                    
+                    if chunk.choices[0].delta.tool_calls is not None:
+                        print('Move to tool call')
+                        
+                        if current_type != 'tool_call':
+                            current_type = 'tool_call'
+                            
+                            current_func = function_sample.copy()
+                            current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
+                            current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+
+                        else:
+                            if chunk.choices[0].delta.tool_calls[-1].function.name is not None:
+                                # New function call started
+                                yield current_func
+                                
+                                current_func = function_sample.copy()
+                                current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
+                                current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+
+                            current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
+                        print(current_func)
+
+                    if chunk.choices[0].delta.content is not None:
+                        if current_type != 'content':
+                            current_type = 'content'
+                            if current_func is not None:
+                                yield current_func
+                                
+                                current_func = None
+                        
+                        yield {'type': 'content', 'content': chunk.choices[0].delta.content}
+        
+        except Exception as e:
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
+            return None
+        
+    async def stream_tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        if self.multimodal:
+            messages = convert_to_multimodal_format(messages)    
+
+        try:
+            completion = _openai_text_completion_stream_async(
+                client = self.async_client,
+                model = self.model_name,
+                messages = messages,
+                temperature=temperature,
+                tools = tools,
+                **kwargs
+            )
+
+            function_sample = {
+                'id': None,
+                'function': {
+                    'name': None,
+                    'arguments': ''
+                },
+                'type': 'function'
+            }
+
+            if completion:
+                current_type = None
+                current_func = None
+                async for chunk in completion:
+                    if chunk.choices[0].finish_reason is not None:
+                        if current_func is not None:
+
+                            yield current_func
+                    
+                    if chunk.choices[0].delta.tool_calls is not None:
+                        
+                        if current_type != 'tool_call':
+                            current_type = 'tool_call'
+                            
+                            current_func = function_sample.copy()
+                            current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
+                            current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+
+                        else:
+                            if chunk.choices[0].delta.tool_calls[-1].function.name is not None:
+                                # New function call started
+                                yield current_func
+                                
+                                current_func = function_sample.copy()
+                                current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
+                                current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+
+                            current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
+
+                    if chunk.choices[0].delta.content is not None:
+                        if current_type != 'content':
+                            current_type = 'content'
+                            if current_func is not None:
+                                yield current_func
+                                
+                                current_func = None
+                        
+                        yield {'type': 'content', 'content': chunk.choices[0].delta.content}
+        
+        except Exception as e:
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
+            return
+
 
 class ChatGPT(OpenAIWrapper):
     def __init__(self, model_name: str = 'gpt-4.1-mini', engine: str = 'davinci-codex', max_tokens: int = 16384, api_key: Optional[str] = None,  **kwargs: Any) -> None:
@@ -399,7 +523,7 @@ class ChatGPT(OpenAIWrapper):
         if api_key is None:
             api_key=os.getenv('OPENAI_API_KEY')
 
-        self.__api_key = api_key
+        self._api_key = api_key
         self.client = OpenAI(api_key=api_key)
         self.async_client = AsyncOpenAI(api_key=api_key)
         self.model_token = max_tokens
@@ -444,6 +568,18 @@ class ChatGPT(OpenAIWrapper):
         if 'gpt-5' in self.model_name:
             temperature = None 
         return await super().tool_calling_async(messages, temperature, tools, **kwargs)
+    
+    # async def stream_tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
+        
+    #     if 'gpt-5' in self.model_name:
+    #         temperature = None 
+    #     return await super().stream_tool_calling_async(messages, temperature, tools, **kwargs)
+    
+    # def stream_tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
+        
+    #     if 'gpt-5' in self.model_name:
+    #         temperature = None 
+    #     return super().stream_tool_calling(messages, temperature, tools, **kwargs)
     
     
     def batch_call(self, list_messages: List[Any], key_list: List[str] = [], prefix: str = '', example_per_batch: int = 100, sleep_time: int = 10, sleep_step: int = 10) -> None:   
@@ -607,13 +743,13 @@ class RotateOpenAIWrapper:
         self.model_name = model_name
         if not api_keys:
             api_keys = get_all_api_key(api_prefix)
-        self.__api_keys = api_keys
-        assert len(self.__api_keys) > 0, "No api keys found"
+        self._api_keys = api_keys
+        assert len(self._api_keys) > 0, "No api keys found"
 
         # Randomize the api_keys
-        random.shuffle(self.__api_keys)
+        random.shuffle(self._api_keys)
         self.queue: deque = deque()
-        for api_key in self.__api_keys:
+        for api_key in self._api_keys:
             self.queue.append(ClientOpenAIWrapper(host=host, model_name=model_name, api_key=api_key, rpm = rpm, **kwargs))
 
     def try_request(self, client: ClientOpenAIWrapper,  **kwargs: Any) -> Tuple[Any, bool]:
@@ -682,7 +818,7 @@ class RotateOpenAIWrapper:
         return client.stream(messages = messages, **kwargs)
              
     def __repr__(self) -> str:
-        return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self.__api_keys)})"
+        return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self._api_keys)})"
     
     def __str__(self) -> str:
-        return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self.__api_keys)})"
+        return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self._api_keys)})"
