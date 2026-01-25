@@ -38,11 +38,11 @@ def _get_llm_wrapper(model_name, **kwargs):
     multimodel = check_multi_model(model_name)
 
     # Not using gpt-oss with chatgpt wrapper
-    if 'gpt' in model_name and 'oss' not in model_name:
+    if model_name.startswith('gpt') and 'oss' not in model_name:
         logger.info(f"Using ChatGPT with model {model_name}")
         return ChatGPT(model_name=model_name, multimodal=multimodel, **kwargs)
         
-    elif 'gemini' in model_name:
+    elif  model_name.startswith('gemini'):
         logger.info(f"Using Gemini with model {model_name}")
         return Gemini(model_name=model_name, multimodal=multimodel, **kwargs)
 
@@ -77,6 +77,14 @@ def _get_host_api_prefix(provider, **kwargs):
     elif provider == 'vllm':
         host = 'http://localhost:8000' if 'host' not in kwargs else kwargs['host']
         api_prefix = 'VLLM_API_KEY' if 'api_prefix' not in kwargs else kwargs['api_prefix']
+
+    elif provider == 'claude':
+        host = 'https://api.anthropic.com/v1'
+        api_prefix = 'ANTHROPIC_API_KEY'
+
+    elif provider == 'gemini-openai':
+        host = 'https://generativelanguage.googleapis.com/v1beta/openai/'
+        api_prefix = 'GEMINI_API_KEY'
 
     return host, api_prefix
 

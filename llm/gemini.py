@@ -16,7 +16,7 @@ sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directo
 from llm.llm_utils import (
     get_all_api_key, 
     pil_to_base64, 
-    convert_messages_to_gemini_format,
+    utils_convert_messages_to_gemini_format,
     convert_non_system_prompts,
     logger
     )
@@ -56,39 +56,36 @@ class Gemini(LLM):
             all_possible_keys = get_all_api_key('GEMINI_API_KEY')
             api_key = random.choice(all_possible_keys)
 
-        self.__api_key = str(api_key)
+        self._api_key = str(api_key)
         self.client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
         
         self.system_instruction = None
         self.chat_session = None
         self.ignore_quota = igrone_quota
         self.system = system
+        self.function_mapping = {}
             
-    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: int = 0.6, tools: Optional[List[Any]] = None, **config):
-        if not self.system:
-            messages = convert_non_system_prompts(messages)
+    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: int = 0.6, tools: Optional[List[Any]] = None, json_format:bool=False, **config):
+        contents, generation_config = self._prepare_gemini_messages(messages, temperature, tools, json_format, **config)
+
+        streaming_response = self.client.models.generate_content_stream(model = self.model_name,
+                                                                    contents = contents, 
+                                                                    config=generation_config)
         
-        gemini_conversion = self.convert_conversation_to_gemini_format(messages)
-        contents = gemini_conversion['contents']
-        system_instruction = gemini_conversion['generation_config']['system_instruction']
+        for chunk in streaming_response:
+            yield chunk.text
+
+    async def astream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: int = 0.6, tools: Optional[List[Any]] = None, json_format:bool=False, **config):
+        contents, generation_config = self._prepare_gemini_messages(messages, temperature, tools, json_format, **config)
+
+        streaming_response = await self.client.aio.models.generate_content_stream(model = self.model_name,
+                                                                    contents = contents, 
+                                                                    config=generation_config)
         
-        response = self.client.models.generate_content_stream(model = self.model_name,
-                                                            contents = contents, 
-                                                            config=genai.types.GenerateContentConfig(
-                                                                    candidate_count=1,
-                                                                    max_output_tokens=8192,
-                                                                    temperature=temperature,
-                                                                    safety_settings=self.safety_settings,
-                                                                    system_instruction=system_instruction,
-                                                                    **config
-                                                                    ),
-                                                            )   
-        
-        for chunk in response:
+        async for chunk in streaming_response:
             yield chunk.text
             
-    @staticmethod 
-    def _convert_component_to_gemini_format(contents: List[Union[str, Dict[str, Any]]]): 
+    def _convert_component_to_gemini_format(self, contents: List[Union[str, Dict[str, Any]]]): 
         parts = []
         for part in contents:
             if isinstance(part, str):
@@ -114,6 +111,32 @@ class Gemini(LLM):
                 elif part.get('type') == 'bytes':
                     mime_type = part.get('mine_type', 'image/jpeg')
                     parts.append(types.Part.from_bytes(data=part['bytes'], mime_type=mime_type))
+
+                elif part.get('type') == 'function_response':
+                    function_name = self.function_mapping.get(part['tool_call_id'])
+                    if function_name is None:
+                        raise ValueError(f"Function name not found for tool id: {part['tool_response']['id']}")
+                    
+                    parts.append(
+                        types.Part.from_function_response(
+                            name=function_name,
+                            response = {'result': part['function_response']}
+                        )
+                    )
+
+                elif part.get('type') == 'function':
+                    function_name = part['function']['name']
+                    if function_name is None:
+                        raise ValueError(f"Function name not found for tool id: {part['function']['name']}")
+                    
+                    parts.append(
+                        types.Part.from_function_call(
+                            name=function_name,
+                            args = part['function']['arguments']
+                        )
+                    )
+
+
                 else:
                     type_ = part.get('type')
                     raise ValueError(f"Invalid type: {type_}")
@@ -151,7 +174,7 @@ class Gemini(LLM):
     def _convert_messages_to_gemini_format_with_object(self, messages):
         
         contents = []
-        messages = convert_messages_to_gemini_format(messages) 
+        messages = utils_convert_messages_to_gemini_format(messages) 
         for msg in messages:
             parts = self._convert_component_to_gemini_format(msg['parts'])
             contents.append(types.Content(role=msg['role'], parts=parts))
@@ -160,7 +183,7 @@ class Gemini(LLM):
     
     def _convert_messages_to_gemini_format_with_json(self, messages):
         contents = []
-        messages = convert_messages_to_gemini_format(messages) 
+        messages = utils_convert_messages_to_gemini_format(messages) 
         for msg in messages:
             parts = self._convert_component_to_gemini_format_json(msg['parts'])
             contents.append({'role': msg['role'], 'parts': parts})
@@ -200,44 +223,78 @@ class Gemini(LLM):
                 'system_instruction': system_instruction
             }
         }
-    
-    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: List[Any] = [], json_format: bool=False, **config):
 
+    def _prepare_gemini_messages(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: List[Any] = [], json_format: bool=False, **config) -> Tuple[List[Any], types.GenerateContentConfig]:
+        
         if not self.system:
             messages = convert_non_system_prompts(messages)
-
-        start = time.time()
 
         gemini_conversion = self.convert_conversation_to_gemini_format(messages, json_format=json_format)
         contents = gemini_conversion['contents']
         system_instruction = gemini_conversion['generation_config']['system_instruction']
-
-        tools = types.Tool(function_declarations=[tools])
         
-        config = types.GenerateContentConfig(
+        if tools:
+            tools = types.Tool(function_declarations=tools)
+            generation_config = types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    safety_settings=self.safety_settings,
+                    temperature=temperature,
+                    tools=[tools],
+                    **config
+                )
+        else:
+            generation_config=types.GenerateContentConfig(
+                candidate_count=1,
                 system_instruction=system_instruction,
                 safety_settings=self.safety_settings,
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(
-                    disable=True
-                ),
-                tools=tools
+                max_output_tokens=8192,
+                temperature=temperature,
                 **config
             )
+        
+        return contents, generation_config
+
+    
+    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: List[Any] = [], json_format: bool=False, **config) -> Optional[Dict[str, Any]]:
+
+        start = time.time()
+        contents, generation_config = self._prepare_gemini_messages(messages, temperature, tools, json_format, **config)
         try:
             response = self.client.models.generate_content(model = self.model_name, 
                                                         contents = contents, 
-                                                        config=config)
+                                                        config=generation_config)
                                                                                                            
+            dummy_function_calls = {
+                'id': 'dummy_id',
+                'function': {'name': 'dummy_function', 'arguments': '{}'},
+                'type': 'function'
+            }
             end = time.time()
             logger.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
-            
-            content = response.candidates[0].content.parts[0].text
+            content = ''
             tool_calls = []
-            if response.candidates[0].content.parts[0].function_call is not None:
-                for choice in response.candidates[0].content.parts[0].function_call:
-                    tool_calls.append(choice.model_dump())
 
-            print(response)
+            for part in response.candidates[0].content.parts:
+
+                if part.text:
+                    content += part.text
+                
+                if part.function_call :
+                
+                    function_calling = dummy_function_calls.copy()
+                    random_id = str(uuid4())
+                    for key, value in part.function_call:
+                        
+                        if key == 'id':
+                            function_calling['id'] = random_id
+                        elif key == 'args':
+                            function_calling['function']['arguments'] = json.dumps(value)
+                        elif key == 'name':
+                            function_calling['function']['name'] = value
+                            self.function_mapping[random_id] = value
+
+                    tool_calls.append(function_calling)
+
 
             return {
                 "content": content,
@@ -248,40 +305,19 @@ class Gemini(LLM):
 
 
             # Log the error
-            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
             return None
 
     
-    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: Optional[List[Any]] = None, json_format: bool=False, **config):
+    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: Optional[List[Any]] = None, json_format: bool=False, **config) -> Optional[str]:
         
-        if not self.system:
-            messages = convert_non_system_prompts(messages)
-
         start = time.time()
-
-        gemini_conversion = self.convert_conversation_to_gemini_format(messages, json_format=json_format)
-        contents = gemini_conversion['contents']
-        system_instruction = gemini_conversion['generation_config']['system_instruction']
-
-        # Check function calling:
-        bool_function = False
-        if tools:
-            return self.tool_calling(messages, temperature, tools, json_format, **config)
-        
-        else:
-            config=types.GenerateContentConfig(
-                candidate_count=1,
-                system_instruction=system_instruction,
-                safety_settings=self.safety_settings,
-                max_output_tokens=8192,
-                temperature=temperature,
-                **config
-            )
+        contents, generation_config = self._prepare_gemini_messages(messages, temperature, tools, json_format, **config)
 
         try:
             response = self.client.models.generate_content(model = self.model_name, 
                                                         contents = contents, 
-                                                        config=config)
+                                                        config=generation_config)
                                                                                                            
             
             end = time.time()
@@ -292,8 +328,29 @@ class Gemini(LLM):
 
 
             # Log the error
-            logger.error(f"Error with API Key ending {self.__api_key[-5:]} : {e}")
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
             return None
+
+
+    async def ainvoke(self,  messages: List[Dict[str, Union[str, List[Dict]]]], temperature:int = 0.4, tools: Optional[List[Any]] = None, json_format: bool=False, **config) -> Optional[str]:
+        start = time.time()
+        contents, generation_config = self._prepare_gemini_messages(messages, temperature, tools, json_format, **config)
+        try:
+            response = await self.client.aio.models.generate_content(model = self.model_name, 
+                                                        contents = contents, 
+                                                        config=generation_config)
+                                                                                                           
+            
+            end = time.time()
+            logger.info(f"Model name: {self.model_name}, Completion {end - start:.5f}s, Usage {response.usage_metadata}")
+            
+            return response.candidates[0].content.parts[0].text
+        except Exception as e:
+
+
+            # Log the error
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
+            return
 
     
     def batch_call(self, list_messages, key_list=[], temperature=0.4, prefix = '', example_per_batch=100, sleep_time=10, sleep_step=10, **config):
@@ -483,11 +540,11 @@ class RotateGemini(LLM):
         self.model_name = model_name
         if not api_keys:
             api_keys = get_all_api_key('GEMINI_API_KEY')
-        self.__api_keys = api_keys
-        assert len(self.__api_keys) > 0, "No api keys found"
+        self._api_keys = api_keys
+        assert len(self._api_keys) > 0, "No api keys found"
 
         # Randomize the api_keys
-        random.shuffle(self.__api_keys)
+        random.shuffle(self._api_keys)
 
         self.queue = deque()
         for api_key in api_keys:
@@ -577,7 +634,7 @@ class RotateGemini(LLM):
         return client.stream(messages = messages, **kwargs)
              
     def __repr__(self):
-        return f"RoutingGemini(model_name={self.model_name}, clients={len(self.__api_keys)})"
+        return f"RoutingGemini(model_name={self.model_name}, clients={len(self._api_keys)})"
 
     def __str__(self):
-        return f"RoutingGemini(model_name={self.model_name}, clients={len(self.__api_keys)})"
+        return f"RoutingGemini(model_name={self.model_name}, clients={len(self._api_keys)})"

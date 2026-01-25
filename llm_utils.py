@@ -299,18 +299,35 @@ def convert_non_system_prompts(messages: List[Dict[str, Union[str, List[Dict]]]]
 
 
 
-def convert_messages_to_gemini_format(messages, has_system=True):
+def utils_convert_messages_to_gemini_format(messages, has_system=True):
     new_messages = []
     if not has_system:
         messages = convert_non_system_prompts(messages)
     for i, item in enumerate(messages):
-        role = item["role"]
-        content = item["content"]
+        role = item.get("role")
+        contents = item.get("content")
         if role == "assistant":
             role = "model"
-        if not isinstance(content, list):
-            content = [content]
-        new_messages.append({"role": role, "parts": content})
+
+        if not isinstance(contents, list):
+            if isinstance(contents, str):
+                contents = [{'type':'text','text':contents}]
+            else:
+                contents = []
+
+        if role == 'tool':
+            contents = [{
+                'type':'function_response',
+                'tool_call_id' : item.get('tool_call_id'),
+                'function_response': item.get('content')
+            }]
+
+
+        if 'tool_calls' in item:
+            contents.extend(item['tool_calls'])
+        
+        
+        new_messages.append({"role": role, "parts": contents})
     return new_messages
 
 

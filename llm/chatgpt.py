@@ -132,7 +132,7 @@ async def _openai_tool_calling_async(client: AsyncOpenAI, **kwargs: Any) -> Dict
 
 class OpenAIWrapper(LLM):
     def __init__(self, host: str, model_name: str, api_key: Optional[str] = None, api_prefix: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, system: bool = True, **kwargs: Any) -> None:
-        self.__initiate_client(host, api_key, api_prefix, random_key, multimodal, ignore_quota, system, **kwargs)
+        self.__initiate_client(host, model_name, api_key, api_prefix, random_key, multimodal, ignore_quota, system, **kwargs)
         
         
     def __initiate_client(self, host: str, model_name: str, api_key: Optional[str] = None, api_prefix: Optional[str] = None, random_key: bool = False, multimodal: bool = False, ignore_quota: bool = True, system: bool = True, **kwargs: Any) -> None:
@@ -140,7 +140,10 @@ class OpenAIWrapper(LLM):
         self.model_name = model_name
         self.api_key = api_key
 
+        print(f"Initializing OpenAIWrapper with model {model_name} at host {host} and API key {api_key}")
+
         if api_key is None and random_key:
+            print("Selecting random API key")
             if api_prefix is None:
                 api_prefix = 'OPENAI_API_KEY'
                 
@@ -310,7 +313,6 @@ class OpenAIWrapper(LLM):
         return content
     
     def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
-        
         if not self.system:
             messages = convert_non_system_prompts(messages)
 
