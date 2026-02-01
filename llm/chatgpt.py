@@ -6,6 +6,7 @@ import time
 from uuid import uuid4
 from openai import OpenAI, AsyncOpenAI
 from typing import Optional, List, Dict, Any, Union, Iterator, Generator, Tuple, AsyncIterator
+from copy import deepcopy
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
@@ -405,8 +406,9 @@ class OpenAIWrapper(LLM):
                     if chunk.choices[0].finish_reason is not None:
                         if current_func is not None:
                             current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
-
                             yield current_func
+                            current_func = None
+                        continue
                     
                     if chunk.choices[0].delta.tool_calls is not None:
                         print('Move to tool call')
@@ -414,29 +416,33 @@ class OpenAIWrapper(LLM):
                         if current_type != 'tool_call':
                             current_type = 'tool_call'
                             
-                            current_func = function_sample.copy()
+                            current_func = deepcopy(function_sample)
                             current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
                             current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
 
                         else:
                             if chunk.choices[0].delta.tool_calls[-1].function.name is not None:
-                                # New function call started
-                                yield current_func
+                                # New function call started - yield previous one
+                                if current_func is not None:
+                                    current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
+                                    yield current_func
                                 
-                                current_func = function_sample.copy()
+                                current_func = deepcopy(function_sample)
                                 current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
                                 current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+                            else:
+                                # Continue building current function arguments
+                                current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
 
-                            current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
-                        print(current_func)
-
-                    if chunk.choices[0].delta.content is not None:
+                    elif chunk.choices[0].delta.content is not None:
+                        # Switch to content mode
+                        if current_func is not None:
+                            current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
+                            yield current_func
+                            current_func = None
+                        
                         if current_type != 'content':
                             current_type = 'content'
-                            if current_func is not None:
-                                yield current_func
-                                
-                                current_func = None
                         
                         yield {'type': 'content', 'content': chunk.choices[0].delta.content}
         
@@ -476,36 +482,40 @@ class OpenAIWrapper(LLM):
                 async for chunk in completion:
                     if chunk.choices[0].finish_reason is not None:
                         if current_func is not None:
-
                             yield current_func
+                            current_func = None
+                        continue
                     
                     if chunk.choices[0].delta.tool_calls is not None:
-                        
+
                         if current_type != 'tool_call':
                             current_type = 'tool_call'
                             
-                            current_func = function_sample.copy()
+                            current_func = deepcopy(function_sample)
                             current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
                             current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
 
                         else:
                             if chunk.choices[0].delta.tool_calls[-1].function.name is not None:
-                                # New function call started
-                                yield current_func
+                                # New function call started - yield previous one
+                                if current_func is not None:
+                                    yield current_func
                                 
-                                current_func = function_sample.copy()
+                                current_func = deepcopy(function_sample)
                                 current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
                                 current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
-
-                            current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
-
-                    if chunk.choices[0].delta.content is not None:
+                            else:
+                                # Continue building current function arguments
+                                current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
+                    
+                    elif chunk.choices[0].delta.content is not None:
+                        # Switch to content mode
+                        if current_func is not None:
+                            yield current_func
+                            current_func = None
+                        
                         if current_type != 'content':
                             current_type = 'content'
-                            if current_func is not None:
-                                yield current_func
-                                
-                                current_func = None
                         
                         yield {'type': 'content', 'content': chunk.choices[0].delta.content}
         
