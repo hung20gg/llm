@@ -1,5 +1,6 @@
 import sys
 import os
+from typing import List, Dict, Any, Optional
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))
 
@@ -8,6 +9,7 @@ from datetime import datetime
 import time
 
 from llm.llm_logger.log_base import LogBase
+from llm_utils import logger
 
 global_db_config = {
     'host': os.getenv('MONGO_HOST', 'localhost'),
@@ -28,9 +30,9 @@ class LLMLogMongoDB(LogBase):
         if db_config is None:
             db_config = global_db_config
         self.db_config = db_config
-        self.client = None
-        self.db = None
-        self.collection = None
+        self.client: Optional[pymongo.MongoClient] = None
+        self.db: Optional[pymongo.database.Database] = None
+        self.collection: Optional[pymongo.collection.Collection] = None
         
         self.connect()
         self._initialize_db()
@@ -49,9 +51,9 @@ class LLMLogMongoDB(LogBase):
             self.collection.create_index("model_name")
             self.collection.create_index("run_name")
             self.collection.create_index("tag")
-            print("MongoDB collection initialized")
+            logger.info("MongoDB collection initialized")
         except Exception as e:
-            print(f"Error initializing database: {e}")
+            logger.error(f"Error initializing database: {e}")
 
     def connect(self):
         """
@@ -67,11 +69,11 @@ class LLMLogMongoDB(LogBase):
             self.client = pymongo.MongoClient(connection_string)
             self.db = self.client[self.db_config['db_name']]
             self.collection = self.db[self.db_config['collection_name']]
-            print("Connected to MongoDB database")
+            logger.info("Connected to MongoDB database")
         except Exception as e:
-            print(f"Error connecting to MongoDB database: {e}")
+            logger.error(f"Error connecting to MongoDB database: {e}")
 
-    def log(self, messages: list[dict], images_path: str|list[str] = None, run_name: str = '', tag: str = ''):
+    def log(self, messages: List[Dict[str, Any]], images_path: Optional[str|list[str]] = None, run_name: str = '', tag: str = ''):
         """
         Log the messages and image path to the MongoDB database.
 
@@ -105,23 +107,23 @@ class LLMLogMongoDB(LogBase):
             }
             
             result = self.collection.insert_one(document)
-            print(f"Log entry added successfully with ID: {result.inserted_id}")
+            logger.info(f"Log entry added successfully with ID: {result.inserted_id}")
         except Exception as e:
-            print(f"Error logging to MongoDB database: {e}")
+            logger.error(f"Error logging to MongoDB database: {e}")
 
 
 if __name__ == "__main__":
     # Example usage
     from llm import ChatGPT
     llm = ChatGPT()  # Replace with your LLM instance
-    logger = LLMLogMongoDB(llm)
+    llm_logger = LLMLogMongoDB(llm)
 
     messages = [
         {'role': 'user', 'content': 'Hello, how are you?'},
     ]
     
-    generator = logger.stream(messages=messages, run_name='test_run', tag='test_tag')
+    generator = llm_logger.stream(messages=messages, run_name='test_run', tag='test_tag')
     for chunk in generator:
         print(chunk, end='', flush=True)
     print(messages)
-    print("Log entry created successfully.")
+    logger.info("Log entry created successfully.")

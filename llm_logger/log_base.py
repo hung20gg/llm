@@ -5,6 +5,9 @@ from PIL import Image
 import asyncio
 import sys
 current_dir = os.path.dirname(os.path.abspath(__file__))
+
+from typing import List, Dict, Any, Optional
+
 class LogBase:
     
     def __init__(self, llm):
@@ -12,7 +15,7 @@ class LogBase:
         self.model_name = llm.model_name
         self.multimodal = llm.multimodal if hasattr(llm, 'multimodal') else False
 
-    def process_messages(self, messages: list[dict], save_images: bool) -> list[dict]:
+    def process_messages(self, messages: List[Dict[str, Any]], save_images: bool) -> List[Dict[str, Any]]:
         """
         Process the messages to ensure they are in the correct format.
         
@@ -54,7 +57,7 @@ class LogBase:
         
 
 
-    def log(self, messages: list[dict], images_path: str|list[str], run_name: str = '', tag: str = ''):
+    def log(self, messages: List[Dict[str, Any]], images_path: Optional[str|List[str]], run_name: str = '', tag: str = ''):
 
         """
         Log the messages and image path to the database.
@@ -66,7 +69,7 @@ class LogBase:
         """
         raise NotImplementedError("Subclasses should implement this method.")
     
-    def __call__(self, messages: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+    def __call__(self, messages: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
         """
         Call the logger to log messages and image path.
         
@@ -91,8 +94,34 @@ class LogBase:
         logging_thread.start()
 
         return response
+    
+    async def ainvoke(self, messages: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
+        """
+        Asynchronously call the logger to log messages and image path.
+        
+        :param messages: List of messages to log.
+        :param image_path: Path to the image file.
+        :param run_name: Name of the run.
+        :param tag: Tag for the log entry.
+        """
+        save_messages = messages.copy()
+        response = await self.llm.astream(messages, **kwargs)
 
-    def tool_calling(self, messages: list[dict], tools: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+        save_messages.append({
+            'role': 'assistant',
+            'content': response
+        })
+
+        logging_thread = threading.Thread(
+            target=self.log,
+            args=(save_messages, images_path, run_name, tag),
+            daemon=True  # Allow program to exit without waiting for this thread
+        )
+        logging_thread.start()
+
+        return response
+
+    def tool_calling(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
         """
         Call the LLM with tool calling and log the messages.
         
@@ -123,7 +152,7 @@ class LogBase:
 
         return response
 
-    def stream(self, messages: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+    def stream(self, messages: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
         """
         Stream the response from the LLM and log it.
         
@@ -153,7 +182,7 @@ class LogBase:
         )
         logging_thread.start()
 
-    def astream(self, messages: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+    def astream(self, messages: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
         """
         Asynchronously stream the response from the LLM and log it.
         
@@ -189,7 +218,7 @@ class LogBase:
         return stream_and_log()
 
 
-    async def tool_calling_async(self, messages: list[dict], tools: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+    async def tool_calling_async(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
         """
         Call the LLM with tool calling asynchronously and log the messages.
         
@@ -220,7 +249,7 @@ class LogBase:
 
         return response
     
-    def stream_tool_calling(self, messages: list[dict], tools: list[dict], images_path: str|list[str] = [], run_name: str = '', tag: str = '', **kwargs):
+    def stream_tool_calling(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
         """
         Stream the response from the LLM with tool calling and log it.
         
@@ -257,3 +286,42 @@ class LogBase:
             daemon=True  # Allow program to exit without waiting for this thread
         )
         logging_thread.start()
+        
+    async def stream_tool_calling_async(self, messages: List[Dict[str, Any]], tools: List[Dict[str, Any]], images_path: Optional[str|List[str]] = [], run_name: str = '', tag: str = '', **kwargs):
+        """
+        Asynchronously stream the response from the LLM with tool calling and log it.
+        
+        :param messages: List of messages to log.
+        :param tools: List of tools available for the LLM.
+        :param images_path: Path to the image file(s).
+        :param run_name: Name of the run.
+        :param tag: Tag for the log entry.
+        """
+        save_messages = messages.copy()
+        response_stream = self.llm.stream_tool_calling_async(messages, tools=tools, **kwargs)
+        response = ""
+        tool_calls = []
+
+
+        async for chunk in response_stream:
+            if isinstance(chunk, dict):
+                if chunk.get('type') == 'tool_call':
+                    tool_calls.append(chunk)
+                elif chunk.get('type') == 'text':
+                    response += chunk.get('text', '')
+                    
+            yield chunk
+
+        save_messages.append({
+            'role': 'assistant',
+            'content': response,
+            'tool_calls': tool_calls
+        })
+
+        logging_thread = threading.Thread(
+            target=self.log,
+            args=(save_messages, images_path, run_name, tag),
+            daemon=True  # Allow program to exit without waiting for this thread
+        )
+        logging_thread.start()
+        

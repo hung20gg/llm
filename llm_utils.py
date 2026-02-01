@@ -281,6 +281,13 @@ def convert_non_system_prompts(messages: List[Dict[str, Union[str, List[Dict]]]]
 
     if messages[0]['role'] == 'system':
         system_prompt = messages[0]['content']
+        
+        if not isinstance(system_prompt, str):
+            if isinstance(system_prompt, list):
+                system_prompt = ''.join([part['text'] for part in system_prompt if part.get('type') == 'text'])
+            else:
+                system_prompt = str(system_prompt)
+        
 
         for i in range(1,len(messages)):
             message = messages[i]['content']

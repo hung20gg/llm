@@ -10,6 +10,9 @@ from uuid import uuid4
 from PIL import Image
 
 from llm.llm_logger.log_base import LogBase
+from llm_utils import logger
+from typing import List, Dict, Any, Optional
+
 
 global_db_config = {
     'host': os.getenv('POSTGRE_HOST', 'localhost'),
@@ -68,7 +71,7 @@ class LLMLogPostgres(LogBase):
 
             self.connection.commit()
         except Exception as e:
-            print(f"Error initializing database: {e}")
+            logger.error(f"Error initializing database: {e}")
             self.connection.rollback()
 
     def connect(self):
@@ -78,16 +81,16 @@ class LLMLogPostgres(LogBase):
         try:
             self.connection = psycopg2.connect(**self.db_config)
             self.cursor = self.connection.cursor()
-            print("Connected to PostgreSQL database")
+            logger.info("Connected to PostgreSQL database")
         except Exception as e:
-            print(f"Error connecting to PostgreSQL database: {e}")
+            logger.error(f"Error connecting to PostgreSQL database: {e}")
 
 
-    def log(self, messages: list[dict], images_path: str|list[str] = None,  run_name: str = '', tag: str = ''):
+    def log(self, messages: List[Dict[str, Any]], images_path: Optional[str|list[str]] = None,  run_name: str = '', tag: str = ''):
         """
         Log the messages and image path to the PostgreSQL database.
         
-        :param image_path: Path to the image file.
+        :param images_path: Path to the image file(s).
         :param messages: List of messages to log.
         :param run_name: Name of the run.
         :param tag: Tag for the log entry.
@@ -95,9 +98,9 @@ class LLMLogPostgres(LogBase):
         if isinstance(images_path, str):
             images_path = [images_path]
 
-        flag_image = len(images_path) == 0
+        flag_image = len(images_path) == 0 if images_path is not None else True
         images = self.process_messages(messages, flag_image)
-        if len(images) > 0 and len(images_path) == 0:
+        if len(images) > 0 and (images_path is None or len(images_path) == 0):
             images_path = images
 
         if not self.connection or self.connection.closed:
@@ -123,9 +126,9 @@ class LLMLogPostgres(LogBase):
                         VALUES (%s, %s)
                     """, (log_id, img_path))
             self.connection.commit()
-            print("Log entry added successfully")
+            logger.info("Log entry added successfully")
         except Exception as e:
-            print(f"Error logging to PostgreSQL database: {e}")
+            logger.error(f"Error logging to PostgreSQL database: {e}")
             self.connection.rollback()
 
 
@@ -134,12 +137,12 @@ if __name__ == "__main__":
     # Example usage
     from llm import ChatGPT
     llm = ChatGPT()  # Replace with your LLM instance
-    logger = LLMLogPostgres(llm)
+    llm_logger = LLMLogPostgres(llm)
 
     messages = [
         {'role': 'user', 'content': 'Hello, how are you?'},
         {'role': 'assistant', 'content': 'I am fine, thank you!'}
     ]
 
-    logger.log(image_path='../assets/spiderman.jpg', messages=messages, run_name='test_run', tag='test_tag')
-    print("Log entry created successfully.")
+    llm_logger.log(images_path='../assets/spiderman.jpg', messages=messages, run_name='test_run', tag='test_tag')
+    logger.info("Log entry created successfully.")

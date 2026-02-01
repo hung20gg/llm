@@ -54,6 +54,7 @@ def _get_llm_wrapper(model_name, **kwargs):
 def _get_host_api_prefix(provider, **kwargs):
     """
     Get the host and API prefix based on the provider.
+    Returns tuple of (host, api_prefix) where both can be None if provider is unknown.
     """
     host = kwargs.get('host', None)
     api_prefix = kwargs.get('api_prefix', None)
@@ -85,6 +86,12 @@ def _get_host_api_prefix(provider, **kwargs):
     elif provider == 'gemini-openai':
         host = 'https://generativelanguage.googleapis.com/v1beta/openai/'
         api_prefix = 'GEMINI_API_KEY'
+    
+    # Provide defaults if still None
+    if host is None:
+        host = 'http://localhost:8000'
+    if api_prefix is None:
+        api_prefix = 'OPENAI_API_KEY'
 
     return host, api_prefix
 
@@ -116,7 +123,7 @@ def get_llm_wrapper(model_name, **kwargs):
             return Gemini(model_name=model, multimodal=multimodel, system=system_prompt, **kwargs)
 
         host, api_prefix = _get_host_api_prefix(provider, **kwargs)
-        api_key = os.getenv(api_prefix, None)
+        api_key = os.getenv(api_prefix, None) if api_prefix else None
 
         return OpenAIWrapper(
             model_name=model,
