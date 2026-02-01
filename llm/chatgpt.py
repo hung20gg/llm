@@ -45,7 +45,8 @@ def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Op
             yield chunk
     except Exception as e:
         logger.error(f"Error in chat completion stream: {e}")
-        return
+        yield None
+        
 
 async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: Any) -> AsyncIterator[Optional[Any]]:
     try:
@@ -57,7 +58,7 @@ async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: An
             yield chunk
     except Exception as e:
         logger.error(f"Error in chat completion stream: {e}")
-        return
+        
 
 def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Any:
         
@@ -186,9 +187,10 @@ class OpenAIWrapper(LLM):
                 )
             if completion:
                 for chunk in completion:
-                    content = chunk.choices[0].delta.content
-                    if content:
-                        yield content
+                    if chunk is not None:
+                        content = chunk.choices[0].delta.content
+                        if content:
+                            yield content
         
         except Exception as e:
             logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
@@ -205,15 +207,14 @@ class OpenAIWrapper(LLM):
             messages = convert_to_multimodal_format(messages)
 
         try:
-            completion = await _openai_text_completion_stream_async(
+            async for chunk in _openai_text_completion_stream_async(
                         client = self.async_client,
                         model = self.model_name,
                         messages = messages,
                         temperature=temperature,
                         **kwargs
-                    )
-            if completion:
-                async for chunk in completion:
+                    ):
+                if chunk is not None:
                     content = chunk.choices[0].delta.content
                     if content:
                         yield content
@@ -223,7 +224,7 @@ class OpenAIWrapper(LLM):
             return
                     
     
-    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
+    def __call__(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -268,7 +269,7 @@ class OpenAIWrapper(LLM):
         
         return content
     
-    async def ainvoke(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
+    async def ainvoke(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -306,14 +307,14 @@ class OpenAIWrapper(LLM):
             else:
                 # Handle edge cases
                 logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
-                return
+                return None
 
         end = time.time()
         logger.info(f"Completion time of {self.model_name}: {end - start}s")
         
         return content
     
-    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
         if not self.system:
             messages = convert_non_system_prompts(messages)
 
@@ -340,7 +341,7 @@ class OpenAIWrapper(LLM):
             logger.error(f"Error with API Key ending {str(self._api_key)[-5:]} : {e}")
             return None
         
-    async def tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    async def tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -369,10 +370,10 @@ class OpenAIWrapper(LLM):
             # Handle edge cases
             api_key_suffix = getattr(self, '_OpenAIWrapper_api_key', getattr(self, '_ChatGPT_api_key', 'unknown'))
             logger.error(f"Error with API Key ending {str(api_key_suffix)[-5:]} : {e}")
-            return
+            return None
 
 
-    def stream_tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
+    def stream_tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -403,6 +404,8 @@ class OpenAIWrapper(LLM):
                 current_type = None
                 current_func = None
                 for chunk in completion:
+                    if chunk is None:
+                        continue
                     if chunk.choices[0].finish_reason is not None:
                         if current_func is not None:
                             current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
@@ -432,7 +435,8 @@ class OpenAIWrapper(LLM):
                                 current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
                             else:
                                 # Continue building current function arguments
-                                current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
+                                if current_func is not None:
+                                    current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
 
                     elif chunk.choices[0].delta.content is not None:
                         # Switch to content mode
@@ -450,7 +454,7 @@ class OpenAIWrapper(LLM):
             logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
             return None
         
-    async def stream_tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
+    async def stream_tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
         if not self.system:
             messages = convert_non_system_prompts(messages)
 
@@ -480,6 +484,8 @@ class OpenAIWrapper(LLM):
                 current_type = None
                 current_func = None
                 async for chunk in completion:
+                    if chunk is None:
+                        continue
                     if chunk.choices[0].finish_reason is not None:
                         if current_func is not None:
                             yield current_func
@@ -506,7 +512,8 @@ class OpenAIWrapper(LLM):
                                 current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
                             else:
                                 # Continue building current function arguments
-                                current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
+                                if current_func is not None:
+                                    current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
                     
                     elif chunk.choices[0].delta.content is not None:
                         # Switch to content mode
@@ -543,55 +550,55 @@ class ChatGPT(OpenAIWrapper):
         self.multimodal = True
         self.system = True
         
-    def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
+    def stream(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
         messages = convert_to_multimodal_format(messages)
         if 'gpt-5' in self.model_name:
             temperature = None
         return super().stream(messages, temperature, tools, **kwargs)
             
-    async def astream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
+    async def astream(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
         messages = convert_to_multimodal_format(messages)
         if 'gpt-5' in self.model_name:
             temperature = None
         return await super().astream(messages, temperature, tools, **kwargs)
             
 
-    def __call__(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+    def __call__(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None
         return super().__call__(messages, temperature, response_format, tools, **kwargs)
             
-    async def ainvoke(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+    async def ainvoke(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None
         return await super().ainvoke(messages, temperature, response_format, tools, **kwargs)
             
 
-    def tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None  
         return super().tool_calling(messages, temperature, tools, **kwargs)
     
-    async def tool_calling_async(self, messages, temperature = 0.6, tools = None, **kwargs):
+    async def tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None 
         return await super().tool_calling_async(messages, temperature, tools, **kwargs)
     
-    # async def stream_tool_calling_async(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
+    async def stream_tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
         
-    #     if 'gpt-5' in self.model_name:
-    #         temperature = None 
-    #     return await super().stream_tool_calling_async(messages, temperature, tools, **kwargs)
+        if 'gpt-5' in self.model_name:
+            temperature = None 
+        return await super().stream_tool_calling_async(messages, temperature, tools, **kwargs)
     
-    # def stream_tool_calling(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
+    def stream_tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
         
-    #     if 'gpt-5' in self.model_name:
-    #         temperature = None 
-    #     return super().stream_tool_calling(messages, temperature, tools, **kwargs)
+        if 'gpt-5' in self.model_name:
+            temperature = None 
+        return super().stream_tool_calling(messages, temperature, tools, **kwargs)
     
     
     def batch_call(self, list_messages: List[Any], key_list: List[str] = [], prefix: str = '', example_per_batch: int = 100, sleep_time: int = 10, sleep_step: int = 10) -> None:   
@@ -753,9 +760,9 @@ class RotateOpenAIWrapper:
     def __init__(self, host: str, model_name: str, api_keys: Optional[List[str]] = None, api_prefix: Optional[str] = None, rpm: int = 10, **kwargs: Any) -> None:
         self._initialized = True
         self.model_name = model_name
-        if not api_keys:
+        if not api_keys and api_prefix is not None:
             api_keys = get_all_api_key(api_prefix)
-        self._api_keys = api_keys
+        self._api_keys = api_keys if api_keys is not None else []
         assert len(self._api_keys) > 0, "No api keys found"
 
         # Randomize the api_keys
