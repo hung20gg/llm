@@ -556,11 +556,12 @@ class ChatGPT(OpenAIWrapper):
             temperature = None
         return super().stream(messages, temperature, tools, **kwargs)
             
-    async def astream(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
+    async def astream(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any):
         messages = convert_to_multimodal_format(messages)
         if 'gpt-5' in self.model_name:
             temperature = None
-        return await super().astream(messages, temperature, tools, **kwargs)
+        async for chunk in super().astream(messages, temperature, tools, **kwargs):
+            yield chunk
             
 
     def __call__(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
@@ -588,11 +589,12 @@ class ChatGPT(OpenAIWrapper):
             temperature = None 
         return await super().tool_calling_async(messages, temperature, tools, **kwargs)
     
-    async def stream_tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> AsyncIterator[Optional[Dict[str, Any]]]:
+    async def stream_tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any):
         
         if 'gpt-5' in self.model_name:
             temperature = None 
-        return await super().stream_tool_calling_async(messages, temperature, tools, **kwargs)
+        async for chunk in super().stream_tool_calling_async(messages, temperature, tools, **kwargs):
+            yield chunk
     
     def stream_tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
         
@@ -749,6 +751,10 @@ class ClientOpenAIWrapper:
     
     def stream(self,*args: Any, **kwargs: Any) -> Any:
         return self.llm.stream(*args, **kwargs)
+    
+    async def astream(self, *args: Any, **kwargs: Any) -> Any:
+        async for chunk in self.llm.astream(*args, **kwargs):
+            yield chunk
 
     def __str__(self) -> str:
         return f"ClientOpenAIWarrper(model_name={self.llm.model_name}, rpm={self.rpm})"
@@ -835,6 +841,24 @@ class RotateOpenAIWrapper:
 
         self.queue.append(client)
         return client.stream(messages = messages, **kwargs)
+    
+    async def astream(self, messages: List[Dict[str, Union[str, List[Dict]]]], **kwargs: Any):
+        client = self.queue.popleft()
+        count = 0
+        max_count = len(self.queue) * 2
+        while client.check_max_rpm():
+            self.queue.append(client)
+            client = self.queue.popleft()
+            count += 1
+            if count % len(self.queue) == 0:
+                logger.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                time.sleep(10)
+            if count > max_count:
+                break
+
+        self.queue.append(client)
+        async for chunk in client.astream(messages=messages, **kwargs):
+            yield chunk
              
     def __repr__(self) -> str:
         return f"RoutingOpenAIWapper(model_name={self.model_name}, clients={len(self._api_keys)})"

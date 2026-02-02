@@ -518,6 +518,10 @@ class ClientGemini:
     
     def stream(self,*args, **kwargs):
         return self.llm.stream(*args, **kwargs)
+    
+    async def astream(self, *args, **kwargs):
+        async for chunk in self.llm.astream(*args, **kwargs):
+            yield chunk
 
     def __str___(self):
         return f"ClientGemini(model_name={self.llm.model_name}, rpm={self.rpm})"
@@ -632,6 +636,32 @@ class RotateGemini(LLM):
 
         self.queue.append(client)
         return client.stream(messages = messages, **kwargs)
+    
+    async def astream(self, messages, **kwargs):
+        client = self.queue.popleft()
+        count = 0
+        max_count = len(self.queue) * 2
+        while client.check_max_rpm():
+            self.queue.append(client)
+
+            assert len(self.queue) != self.len_queue, "Client leakage"
+
+            client = self.queue.popleft()
+            count += 1
+
+            # Only 1 api key
+            if self.len_queue == 1:
+                break
+
+            if count % len(self.queue) == 0:
+                logger.warning("All clients have reached the maximum rpm. Wait for 10 seconds")
+                time.sleep(10)
+            if count > max_count:
+                break
+
+        self.queue.append(client)
+        async for chunk in client.astream(messages=messages, **kwargs):
+            yield chunk
              
     def __repr__(self):
         return f"RoutingGemini(model_name={self.model_name}, clients={len(self._api_keys)})"
