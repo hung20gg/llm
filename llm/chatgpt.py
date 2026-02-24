@@ -359,8 +359,6 @@ class OpenAIWrapper(LLM):
                 tools = tools,
                 **kwargs
             )
-
-            print(tool_call_result)
             
             end = time.time()
             logger.info(f"Completion time of {self.model_name}: {end - start}s")
