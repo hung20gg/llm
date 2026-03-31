@@ -7,6 +7,8 @@ from uuid import uuid4
 from openai import OpenAI, AsyncOpenAI
 from typing import Optional, List, Dict, Any, Union, Iterator, Generator, Tuple, AsyncIterator
 from copy import deepcopy
+import re
+
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.join(current_dir, '..', '..'))  # Add the parent directory to the path
@@ -42,16 +44,33 @@ def output_with_usage(response: Any, usage: Any, count_tokens: bool = False) -> 
         }
     return response
 
-def format_reasoning_content(reasoning_content: Optional[str], content: Optional[str]) -> Optional[str]:
+_THINK_TAG_RE = re.compile(r"</?think>")
 
+def format_reasoning_content(
+    reasoning_content: Optional[str],
+    content: Optional[str]
+) -> Optional[str]:
+    # Không có reasoning_content thì trả content như cũ
+    if reasoning_content is None:
+        return content
+
+    reasoning_content = reasoning_content.strip()
     if not reasoning_content:
         return content
 
+    # Bỏ tag <think> nếu input đã có sẵn
+    cleaned = _THINK_TAG_RE.sub("", reasoning_content).strip()
+
+    # Nếu sau khi bỏ tag mà trống luôn thì cũng coi như không có reasoning
+    if not cleaned:
+        return content
+
+    wrapped = f"<think>{cleaned}</think>"
+
     if content is None:
-        return f"<think>{reasoning_content}</think>"
+        return wrapped
 
-    return f"<think>{reasoning_content}</think>{content}"
-
+    return f"{wrapped}{content}"
 def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Optional[Any]]:
     try:
         completion = client.chat.completions.create(
@@ -466,7 +485,7 @@ class OpenAIWrapper(LLM):
                 **kwargs
             )
 
-            function_sample = {
+            function_sample: Dict[str, Any] = {
                 'id': None,
                 'function': {
                     'name': None,
@@ -586,7 +605,7 @@ class OpenAIWrapper(LLM):
                 **kwargs
             )
 
-            function_sample = {
+            function_sample: Dict[str, Any] = {
                 'id': None,
                 'function': {
                     'name': None,
@@ -605,8 +624,8 @@ class OpenAIWrapper(LLM):
                     return raw
 
             if completion:
-                current_type = None
-                current_func = None
+                current_type: Optional[str] = None
+                current_func: Optional[Dict[str, Any]] = None
                 async for chunk in completion:
                     if chunk is None:
                         if current_type == 'reasoning':
