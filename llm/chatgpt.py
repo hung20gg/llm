@@ -24,6 +24,14 @@ from llm.llm.abstract import LLM
 from dotenv import load_dotenv
 load_dotenv()
 
+def _get_reasoning_content(response):
+    
+    reasoning_content = getattr(response, 'reasoning_content', None)
+    if not reasoning_content:
+        reasoning_content = getattr(response, 'reasoning', None)
+    
+    return reasoning_content
+
 def output_with_usage(response: Any, usage: Any, count_tokens: bool = False) -> Union[Dict[str, Any], Any]:
     if count_tokens:
         return {
@@ -34,6 +42,15 @@ def output_with_usage(response: Any, usage: Any, count_tokens: bool = False) -> 
         }
     return response
 
+def format_reasoning_content(reasoning_content: Optional[str], content: Optional[str]) -> Optional[str]:
+
+    if not reasoning_content:
+        return content
+
+    if content is None:
+        return f"<think>{reasoning_content}</think>"
+
+    return f"<think>{reasoning_content}</think>{content}"
 
 def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Optional[Any]]:
     try:
@@ -41,8 +58,16 @@ def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Op
             stream=True,
             **kwargs
         )
-        for chunk in completion:
-            yield chunk
+        stream_iter = iter(completion)
+        while True:
+            try:
+                chunk = next(stream_iter)
+                yield chunk
+            except StopIteration:
+                break
+            except Exception as e:
+                logger.warning(f"Skipping invalid stream chunk: {e}")
+                continue
     except Exception as e:
         logger.error(f"Error in chat completion stream: {e}")
         yield None
@@ -54,8 +79,17 @@ async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: An
             stream=True,
             **kwargs
         )
-        async for chunk in completion:
-            yield chunk
+        stream_iter = completion.__aiter__()
+        while True:
+            try:
+                chunk = await stream_iter.__anext__()
+                # print(chunk)
+                yield chunk
+            except StopAsyncIteration:
+                break
+            except Exception as e:
+                logger.warning(f"Skipping invalid stream chunk: {e}")
+                continue
     except Exception as e:
         logger.error(f"Error in chat completion stream: {e}")
         
@@ -75,8 +109,8 @@ def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Any:
             return response.parsed
         elif response.refusal:
             return response.refusal
-
-    return response.content
+    reasoning_content = _get_reasoning_content(response)
+    return format_reasoning_content(reasoning_content, response.content)
 
 
 async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> Any:
@@ -95,39 +129,59 @@ async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> A
         elif response.refusal:
             return response.refusal
 
-    return response.content
+    content = response.content
+    reasoning_content = _get_reasoning_content(response)    
+    return {
+        "content": format_reasoning_content(reasoning_content, content),
+        "reasoning_content": reasoning_content
+    }
 
 
 def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
-
-    completion  = client.chat.completions.create(
-        **kwargs
-    )
+    try:
+        completion = client.chat.completions.create(
+            **kwargs
+        )
+    except Exception as e:
+        logger.warning(f"Skipping invalid tool calling response: {e}")
+        return {"content": "", "tool_calls": []}
     content = ""
     tool_calls = []
-    if completion.choices[0].message.tool_calls is not None:
-        for choice in completion.choices[0].message.tool_calls:
+    response = completion.choices[0].message
+    
+    if response.tool_calls is not None:
+        for choice in response.tool_calls:
             tool_calls.append(choice.model_dump())
-    content = completion.choices[0].message.content
+    
+    content = response.content
+    reasoning_content = _get_reasoning_content(response)    
 
     return {
-        "content": content,
+        "content": format_reasoning_content(reasoning_content, content),
         "tool_calls": tool_calls
     }
     
 async def _openai_tool_calling_async(client: AsyncOpenAI, **kwargs: Any) -> Dict[str, Any]:
-    completion  = await client.chat.completions.create(
-        **kwargs
-    )
+    try:
+        completion = await client.chat.completions.create(
+            **kwargs
+        )
+    except Exception as e:
+        logger.warning(f"Skipping invalid tool calling response: {e}")
+        return {"content": "", "tool_calls": []}
     content = ""
     tool_calls = []
-    if completion.choices[0].message.tool_calls is not None:
-        for choice in completion.choices[0].message.tool_calls:
+    response = completion.choices[0].message
+    
+    if response.tool_calls is not None:
+        for choice in response.tool_calls:
             tool_calls.append(choice.model_dump())
-    content = completion.choices[0].message.content
+    
+    content = response.content
+    reasoning_content = _get_reasoning_content(response)
 
     return {
-        "content": content,
+        "content": format_reasoning_content(reasoning_content, content),
         "tool_calls": tool_calls
     }
 
@@ -145,7 +199,6 @@ class OpenAIWrapper(LLM):
         print(f"Initializing OpenAIWrapper with model {model_name} at host {host} and API key {api_key}")
 
         if api_key is None and random_key:
-            print("Selecting random API key")
             if api_prefix is None:
                 api_prefix = 'OPENAI_API_KEY'
                 
@@ -186,11 +239,23 @@ class OpenAIWrapper(LLM):
                     **kwargs
                 )
             if completion:
+                is_thinking = False
                 for chunk in completion:
                     if chunk is not None:
-                        content = chunk.choices[0].delta.content
-                        if content:
-                            yield content
+                        content = chunk.choices[0].delta.content                        
+                        reasoning_content = _get_reasoning_content(chunk.choices[0].delta)
+
+                        if reasoning_content is not None:
+                            if not is_thinking:
+                                is_thinking = True
+                                yield '<think>'
+                            yield reasoning_content
+                        else:
+                            if is_thinking:
+                                is_thinking = False
+                                yield '</think>'
+                            if content:
+                                yield content
         
         except Exception as e:
             logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
@@ -216,8 +281,19 @@ class OpenAIWrapper(LLM):
                     ):
                 if chunk is not None:
                     content = chunk.choices[0].delta.content
-                    if content:
-                        yield content
+                    reasoning_content = _get_reasoning_content(chunk.choices[0].delta)
+
+                    if reasoning_content is not None:
+                        if not is_thinking:
+                            is_thinking = True
+                            yield '<think>'
+                        yield reasoning_content
+                    else:
+                        if is_thinking:
+                            is_thinking = False
+                            yield '</think>'
+                        if content:
+                            yield content
         
         except Exception as e:
             logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
@@ -336,6 +412,7 @@ class OpenAIWrapper(LLM):
             logger.info(f"Completion time of {self.model_name}: {end - start}s")
 
             return tool_call_result
+        
         except Exception as e:
             # Handle edge cases
             logger.error(f"Error with API Key ending {str(self._api_key)[-5:]} : {e}")
@@ -398,56 +475,96 @@ class OpenAIWrapper(LLM):
                 'type': 'function'
             }
             # Fix both content and function
+            def _parse_args(raw: str) -> str:
+                if not raw:
+                    return "{}"
+                try:
+                    json.loads(raw)  # validate
+                    return raw
+                except Exception:
+                    return raw
+
             if completion:
-                current_type = None
-                current_func = None
+                current_type: Optional[str] = None
+                current_func: Optional[Dict[str, Any]] = None
                 for chunk in completion:
                     if chunk is None:
+                        if current_type == 'reasoning':
+                            yield {'type': 'content', 'content': '</think>'}
                         continue
                     if chunk.choices[0].finish_reason is not None:
+                        if current_type == 'reasoning':
+                            yield {'type': 'content', 'content': '</think>'}
                         if current_func is not None:
-                            current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
+                            current_func['function']['arguments'] = _parse_args(current_func['function']['arguments'])
                             yield current_func
                             current_func = None
                         continue
+
+                    response = chunk.choices[0].delta
+
+                    if _get_reasoning_content(response):
+                        if current_func is not None:
+                            yield current_func
+                            current_func = None
+                        
+                        if current_type != 'reasoning':
+                            current_type = 'reasoning'
+
+                            yield {'type': 'content', 'content': '<think>'}
+                        
+                        yield {'type': 'content', 'content':  _get_reasoning_content(response)}
+
+                    elif current_type == 'reasoning':
+                        yield {'type': 'content', 'content': '</think>'}
+                        
                     
-                    if chunk.choices[0].delta.tool_calls is not None:
-                        print('Move to tool call')
+                    
+                    if response.tool_calls is not None:
                         
                         if current_type != 'tool_call':
                             current_type = 'tool_call'
                             
                             current_func = deepcopy(function_sample)
-                            current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
-                            current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+                            current_func['id'] = response.tool_calls[-1].id
+                            current_func['function']['name'] = response.tool_calls[-1].function.name
+                            initial_args = response.tool_calls[-1].function.arguments
+                            if initial_args:
+                                current_func['function']['arguments'] += initial_args
 
                         else:
-                            if chunk.choices[0].delta.tool_calls[-1].function.name is not None:
+                            if response.tool_calls[-1].function.name is not None:
                                 # New function call started - yield previous one
                                 if current_func is not None:
-                                    current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
+                                    current_func['function']['arguments'] = _parse_args(current_func['function']['arguments'])
                                     yield current_func
                                 
                                 current_func = deepcopy(function_sample)
-                                current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
-                                current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+                                current_func['id'] = response.tool_calls[-1].id
+                                current_func['function']['name'] = response.tool_calls[-1].function.name
+                                initial_args = response.tool_calls[-1].function.arguments
+                                if initial_args:
+                                    current_func['function']['arguments'] += initial_args
                             else:
                                 # Continue building current function arguments
                                 if current_func is not None:
-                                    current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
+                                    current_func['function']['arguments'] += response.tool_calls[-1].function.arguments
 
-                    elif chunk.choices[0].delta.content is not None:
+
+                    
+                    elif response.content is not None:
                         # Switch to content mode
                         if current_func is not None:
-                            current_func['function']['arguments'] = json.loads(current_func['function']['arguments'])
+                            current_func['function']['arguments'] = _parse_args(current_func['function']['arguments'])
                             yield current_func
                             current_func = None
-                        
+
                         if current_type != 'content':
                             current_type = 'content'
                         
-                        yield {'type': 'content', 'content': chunk.choices[0].delta.content}
-        
+                        yield {'type': 'content', 'content': response.content}
+                    
+
         except Exception as e:
             logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
             return None
@@ -478,51 +595,92 @@ class OpenAIWrapper(LLM):
                 'type': 'function'
             }
 
+            def _parse_args_async(raw: str) -> str:
+                if not raw:
+                    return "{}"
+                try:
+                    json.loads(raw)  # validate
+                    return raw
+                except Exception:
+                    return raw
+
             if completion:
                 current_type = None
                 current_func = None
                 async for chunk in completion:
                     if chunk is None:
+                        if current_type == 'reasoning':
+                            yield {'type': 'content', 'content': '</think>'}
                         continue
                     if chunk.choices[0].finish_reason is not None:
+                        if current_type == 'reasoning':
+                            yield {'type': 'content', 'content': '</think>'}
                         if current_func is not None:
+                            current_func['function']['arguments'] = _parse_args_async(current_func['function']['arguments'])
                             yield current_func
                             current_func = None
                         continue
+
+                    response = chunk.choices[0].delta
+
+
+                    if _get_reasoning_content(response):
+                        if current_func is not None:
+                            yield current_func
+                            current_func = None
+                        
+                        if current_type != 'reasoning':
+                            current_type = 'reasoning'
+
+                            yield {'type': 'content', 'content': '<think>'}
+                        
+                        yield {'type': 'content', 'content':  _get_reasoning_content(response)}
+                        continue
+
+                    elif current_type == 'reasoning':
+                        yield {'type': 'content', 'content': '</think>'}
+                        
                     
-                    if chunk.choices[0].delta.tool_calls is not None:
+                    if response.tool_calls is not None:
 
                         if current_type != 'tool_call':
                             current_type = 'tool_call'
                             
                             current_func = deepcopy(function_sample)
-                            current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
-                            current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+                            current_func['id'] = response.tool_calls[-1].id
+                            current_func['function']['name'] = response.tool_calls[-1].function.name
+                            initial_args = response.tool_calls[-1].function.arguments
+                            if initial_args:
+                                current_func['function']['arguments'] += initial_args
 
                         else:
-                            if chunk.choices[0].delta.tool_calls[-1].function.name is not None:
+                            if response.tool_calls[-1].function.name is not None:
                                 # New function call started - yield previous one
                                 if current_func is not None:
+                                    current_func['function']['arguments'] = _parse_args_async(current_func['function']['arguments'])
                                     yield current_func
                                 
                                 current_func = deepcopy(function_sample)
-                                current_func['id'] = chunk.choices[0].delta.tool_calls[-1].id
-                                current_func['function']['name'] = chunk.choices[0].delta.tool_calls[-1].function.name
+                                current_func['id'] = response.tool_calls[-1].id
+                                current_func['function']['name'] = response.tool_calls[-1].function.name
+                                initial_args = response.tool_calls[-1].function.arguments
+                                if initial_args:
+                                    current_func['function']['arguments'] += initial_args
                             else:
                                 # Continue building current function arguments
                                 if current_func is not None:
                                     current_func['function']['arguments'] += chunk.choices[0].delta.tool_calls[-1].function.arguments
                     
-                    elif chunk.choices[0].delta.content is not None:
+                    elif response.content is not None:
                         # Switch to content mode
                         if current_func is not None:
                             yield current_func
                             current_func = None
-                        
+
                         if current_type != 'content':
                             current_type = 'content'
                         
-                        yield {'type': 'content', 'content': chunk.choices[0].delta.content}
+                        yield {'type': 'content', 'content': response.content}
         
         except Exception as e:
             logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
@@ -777,7 +935,6 @@ class RotateOpenAIWrapper:
 
     def try_request(self, client: ClientOpenAIWrapper,  **kwargs: Any) -> Tuple[Any, bool]:
         try:
-            print(client)
             return client( **kwargs), True
         except Exception as e:
             logger.error(f"Error: {e}")

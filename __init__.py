@@ -86,6 +86,14 @@ def _get_host_api_prefix(provider, **kwargs):
     elif provider == 'gemini-openai':
         host = 'https://generativelanguage.googleapis.com/v1beta/openai/'
         api_prefix = 'GEMINI_API_KEY'
+
+    elif provider == 'cerebras':
+        host = 'https://api.cerebras.ai/v1'
+        api_prefix = 'CEREBRAS_API_KEY'
+
+    elif provider == 'openrouter':
+        host = 'https://openrouter.ai/api/v1'
+        api_prefix = 'OPENROUTER_API_KEY'
     
     # Provide defaults if still None
     if host is None:
