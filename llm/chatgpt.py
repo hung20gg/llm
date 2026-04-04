@@ -215,7 +215,7 @@ class OpenAIWrapper(LLM):
         self.model_name = model_name
         self.api_key = api_key
 
-        print(f"Initializing OpenAIWrapper with model {model_name} at host {host} and API key {api_key}")
+        logger.info(f"Initializing OpenAIWrapper with model {model_name} at host {host} and API key {str(api_key)[-5:]}")
 
         if api_key is None and random_key:
             if api_prefix is None:
@@ -287,8 +287,7 @@ class OpenAIWrapper(LLM):
         if not self.system:
             messages = convert_non_system_prompts(messages)
 
-        if self.multimodal:
-            messages = convert_to_multimodal_format(messages)
+        messages = convert_to_multimodal_format(messages)
 
         try:
             is_thinking = False
@@ -326,8 +325,7 @@ class OpenAIWrapper(LLM):
         if not self.system:
             messages = convert_non_system_prompts(messages)
 
-        if self.multimodal:
-            messages = convert_to_multimodal_format(messages)
+        messages = convert_to_multimodal_format(messages)
 
         if tools is not None and len(tools) > 0:
             return self.tool_calling(
