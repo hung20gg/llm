@@ -291,6 +291,7 @@ class OpenAIWrapper(LLM):
             messages = convert_to_multimodal_format(messages)
 
         try:
+            is_thinking = False
             async for chunk in _openai_text_completion_stream_async(
                         client = self.async_client,
                         model = self.model_name,
@@ -299,6 +300,7 @@ class OpenAIWrapper(LLM):
                         **kwargs
                     ):
                 if chunk is not None:
+                    
                     content = chunk.choices[0].delta.content
                     reasoning_content = _get_reasoning_content(chunk.choices[0].delta)
 
