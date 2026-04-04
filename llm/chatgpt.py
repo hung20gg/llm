@@ -407,7 +407,7 @@ class OpenAIWrapper(LLM):
         end = time.time()
         logger.info(f"Completion time of {self.model_name}: {end - start}s")
         
-        return content
+        return content['content'] if isinstance(content, dict) and 'content' in content else content
     
     def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
         if not self.system:
