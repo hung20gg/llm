@@ -4,11 +4,12 @@ from .llm.vllm import vLLM
 from .llm.abstract import LLM
 from .llm_utils import logger
 import os
+from typing import Tuple
 from dotenv import load_dotenv
 load_dotenv()
 
 
-def check_multi_model(model_name):
+def check_multi_model(model_name: str) -> bool:
 
     guarantee_models = [
         'gpt',
@@ -33,7 +34,7 @@ def check_multi_model(model_name):
     return False
 
 
-def _get_llm_wrapper(model_name, **kwargs):
+def _get_llm_wrapper(model_name: str, **kwargs) -> LLM:
 
     multimodel = check_multi_model(model_name)
 
@@ -51,7 +52,7 @@ def _get_llm_wrapper(model_name, **kwargs):
     return OpenAIWrapper(model_name=model_name, multimodal=multimodel, **kwargs)
 
 
-def _get_host_api_prefix(provider, **kwargs):
+def _get_host_api_prefix(provider: str, **kwargs) -> Tuple[str, str]:
     """
     Get the host and API prefix based on the provider.
     Returns tuple of (host, api_prefix) where both can be None if provider is unknown.
@@ -104,12 +105,10 @@ def _get_host_api_prefix(provider, **kwargs):
     return host, api_prefix
 
 
-def get_llm_wrapper(model_name, **kwargs):
+def get_llm_wrapper(model_name: str, **kwargs) -> LLM:
 
-    
-
-    if model_name.count(':') == 1:
-        provider, model = model_name.split(':')
+    if model_name.count(':') >= 1:
+        provider, model = model_name.split(':', 1)
 
         multimodel = check_multi_model(model)
         logger.info(f"Using {provider} with model {model}")
@@ -146,12 +145,11 @@ def get_llm_wrapper(model_name, **kwargs):
         return _get_llm_wrapper(model_name=model_name, **kwargs)
 
 
-def get_rotate_llm_wrapper(model_name, **kwargs):
+def get_rotate_llm_wrapper(model_name: str, **kwargs) -> LLM:
     provider = None
     multimodel = check_multi_model(model_name)
-    if model_name.count(':') == 1:
-        provider, model_name = model_name.split(':')
-        multimodel = check_multi_model(model_name)
+    provider, model_name = model_name.split(':', 1)
+    multimodel = check_multi_model(model_name)
 
        
     system_prompt = True
