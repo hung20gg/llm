@@ -1,5 +1,5 @@
 from .llm.gemini import Gemini, RotateGemini
-from .llm.chatgpt import ChatGPT, OpenAIWrapper, RotateOpenAIWrapper
+from .llm.openai_compatible import OpenAI, OpenAIWrapper, RotateOpenAIWrapper
 from .llm.vllm import vLLM
 from .llm.abstract import LLM
 from .llm_utils import logger
@@ -38,10 +38,10 @@ def _get_llm_wrapper(model_name: str, **kwargs) -> LLM:
 
     multimodel = check_multi_model(model_name)
 
-    # Not using gpt-oss with chatgpt wrapper
+    # Not using gpt-oss with OpenAI wrapper
     if model_name.startswith('gpt') and 'oss' not in model_name:
-        logger.info(f"Using ChatGPT with model {model_name}")
-        return ChatGPT(model_name=model_name, multimodal=multimodel, **kwargs)
+        logger.info(f"Using OpenAI with model {model_name}")
+        return OpenAI(model_name=model_name, multimodal=multimodel, **kwargs)
         
     elif  model_name.startswith('gemini'):
         logger.info(f"Using Gemini with model {model_name}")
@@ -122,8 +122,8 @@ def get_llm_wrapper(model_name: str, **kwargs) -> LLM:
                 break
         
         if provider in ['openai']:
-            logger.info(f"Using ChatGPT with model {model}")
-            return ChatGPT(model_name=model, multimodal=multimodel, **kwargs)
+            logger.info(f"Using OpenAI with model {model}")
+            return OpenAI(model_name=model, multimodal=multimodel, **kwargs)
         
         elif provider in ['gemini', 'google']:
             logger.info(f"Using Gemini with model {model}")
