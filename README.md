@@ -26,7 +26,7 @@ Create a `.env` file and pass every API key in it. Check each class for the spec
 ```python
 from llm import OpenAI
 
-llm = OpenAI(model_name='gpt-4.1-mini')
+llm = OpenAIGPT(model_name='gpt-4.1-mini')
 messages = [
     {'role': 'user', 'content': 'Hi there!'}
 ]
@@ -64,7 +64,7 @@ Tool calling is supported by OpenAI wrappers and Gemini. Pass a `tools` list whe
 ```python
 from llm import OpenAI
 
-llm = OpenAI(model_name='gpt-4.1-mini')
+llm = OpenAIGPT(model_name='gpt-4.1-mini')
 messages = [
     {'role': 'user', 'content': 'Get the current price of AAPL.'}
 ]
@@ -139,7 +139,7 @@ Image content can be passed as a path, `Image.Image` object, or base64 data URL.
 ```python
 from llm import OpenAI
 
-llm = OpenAI(model_name='gpt-4.1-mini')
+llm = OpenAIGPT(model_name='gpt-4.1-mini')
 messages = [
   {
     'role': 'user',
@@ -160,7 +160,7 @@ You can wrap any LLM instance with `LLMLogMongoDB` to automatically log usage an
 from llm import OpenAI
 from llm.logger.log_mongodb import LLMLogMongoDB
 
-llm_ = OpenAI(model_name='gpt-4.1-mini')
+llm_ = OpenAIGPT(model_name='gpt-4.1-mini')
 llm = LLMLogMongoDB(llm_)
 ```
 

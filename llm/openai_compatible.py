@@ -706,7 +706,7 @@ class OpenAIWrapper(LLM):
             return
 
 
-class OpenAI(OpenAIWrapper):
+class OpenAIGPT(OpenAIWrapper):
     def __init__(self, model_name: str = 'gpt-4.1-mini', engine: str = 'davinci-codex', max_tokens: int = 16384, api_key: Optional[str] = None,  **kwargs: Any) -> None:
         self.__initialize_client(model_name, engine, max_tokens, api_key, **kwargs)
         
