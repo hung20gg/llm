@@ -9,7 +9,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def check_multi_model(model_name: str) -> bool:
+def check_multi_model(model_name: str, **kwargs) -> bool:
+
+    if 'multimodal' in kwargs:
+        return kwargs['multimodal']
 
     guarantee_models = [
         'gpt',
@@ -17,7 +20,11 @@ def check_multi_model(model_name: str) -> bool:
         'grok',
         'claude',
         'llama4',
-        'llava'
+        'llava',
+        'qwen3vl',
+        'qwen3.5',
+        'kimi',
+        'gemma4',
     ]
 
     test = model_name.lower().replace('-', '').replace('_', '')
@@ -77,7 +84,7 @@ def _get_host_api_prefix(provider: str, **kwargs) -> Tuple[str, str]:
         api_prefix = 'DEEPINFRA_API_KEY'
 
     elif provider == 'vllm':
-        host = 'http://localhost:8000' if 'host' not in kwargs else kwargs['host']
+        host = 'http://localhost:8000/v1' if 'host' not in kwargs else kwargs['host']
         api_prefix = 'VLLM_API_KEY' if 'api_prefix' not in kwargs else kwargs['api_prefix']
 
     elif provider == 'claude':
@@ -110,7 +117,7 @@ def get_llm_wrapper(model_name: str, **kwargs) -> LLM:
     if model_name.count(':') >= 1:
         provider, model = model_name.split(':', 1)
 
-        multimodel = check_multi_model(model)
+        multimodel = check_multi_model(model, **kwargs)
         logger.info(f"Using {provider} with model {model}")
 
         system_prompt = True
