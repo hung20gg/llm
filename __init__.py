@@ -114,6 +114,9 @@ def _get_host_api_prefix(provider: str, **kwargs) -> Tuple[str, str]:
 
 def get_llm_wrapper(model_name: str, **kwargs) -> LLM:
 
+    if 'max_completion_tokens' not in kwargs and 'max_tokens' not in kwargs:
+        kwargs['max_completion_tokens'] = 8192
+
     if model_name.count(':') >= 1:
         provider, model = model_name.split(':', 1)
 
