@@ -156,6 +156,49 @@ async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> A
     }
 
 
+def _format_legacy_completion_choice(choice: Any, include_logprobs: bool = False) -> Union[str, Dict[str, Any]]:
+    content = choice.text
+    if not include_logprobs:
+        return content
+
+    lp = choice.logprobs
+    token_logprobs = []
+    if lp is not None:
+        tokens = lp.tokens or []
+        logprobs = lp.token_logprobs or []
+        top_logprobs = lp.top_logprobs or []
+        text_offsets = lp.text_offset or []
+        for idx, token in enumerate(tokens):
+            token_logprobs.append({
+                "index": idx,
+                "token": token,
+                "logprob": logprobs[idx] if idx < len(logprobs) else None,
+                "top_logprobs": top_logprobs[idx] if idx < len(top_logprobs) else None,
+                "text_offset": text_offsets[idx] if idx < len(text_offsets) else None,
+            })
+
+    return {
+        "content": content,
+        "logprobs": token_logprobs,
+    }
+
+
+def _openai_legacy_completion(client: OpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
+    completion = client.completions.create(
+        **kwargs
+    )
+    logger.info(completion.usage)
+    return _format_legacy_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
+
+
+async def _openai_legacy_completion_async(client: AsyncOpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
+    completion = await client.completions.create(
+        **kwargs
+    )
+    logger.info(completion.usage)
+    return _format_legacy_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
+
+
 def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
     try:
         completion = client.chat.completions.create(
@@ -230,6 +273,287 @@ class OpenAIWrapper(LLM):
         self.multimodal = multimodal
         self.ignore_quota = ignore_quota
         self.system = system
+        self._chat_template_tokenizers: Dict[str, Any] = {}
+        self._chat_template_generation_configs: Dict[str, Any] = {}
+
+    @staticmethod
+    def _normalize_chat_template_model_name(model_name: str) -> str:
+        if ":" in model_name:
+            return model_name.split(":", 1)[1]
+        return model_name
+
+    @staticmethod
+    def _normalize_eos_ids(eos_token_id: Any) -> List[int]:
+        if eos_token_id is None:
+            return []
+        if isinstance(eos_token_id, int):
+            return [eos_token_id]
+        return list(eos_token_id)
+
+    @staticmethod
+    def _decode_token_id(tokenizer: Any, token_id: int) -> str:
+        return tokenizer.decode(
+            [token_id],
+            skip_special_tokens=False,
+        )
+
+    def _is_end_of_message_token(self, tokenizer: Any, token_id: int) -> bool:
+        token_text = self._decode_token_id(tokenizer, token_id).strip()
+        end_of_message_tokens = {
+            "</s>",
+            "<|end|>",
+            "<|eot_id|>",
+            "<|im_end|>",
+            "<|endofmessage|>",
+            "<|end_of_message|>",
+            "<|end_of_turn|>",
+            "<end_of_turn>",
+            "<｜end▁of▁sentence｜>",
+        }
+        return token_text in end_of_message_tokens
+
+    def register_chat_template(self, model_name: Optional[str] = None, **kwargs: Any) -> Any:
+        source_model_name = model_name or self.model_name
+        hf_model_name = self._normalize_chat_template_model_name(source_model_name)
+        if hf_model_name in self._chat_template_tokenizers:
+            logger.info(f"Using cached chat template tokenizer for {hf_model_name}")
+            return self._chat_template_tokenizers[hf_model_name]
+
+        try:
+            from transformers import AutoTokenizer
+        except ImportError as e:
+            raise ImportError(
+                "transformers is required to apply a Hugging Face chat template. "
+                "Install it or pass a prompt directly to completion()."
+            ) from e
+
+        logger.info(
+            f"Registering chat template tokenizer for {hf_model_name} "
+            f"from completion model {source_model_name}"
+        )
+        tokenizer = AutoTokenizer.from_pretrained(hf_model_name, **kwargs)
+        self._chat_template_tokenizers[hf_model_name] = tokenizer
+        return tokenizer
+
+    def register_generation_config(self, model_name: Optional[str] = None, **kwargs: Any) -> Optional[Any]:
+        source_model_name = model_name or self.model_name
+        hf_model_name = self._normalize_chat_template_model_name(source_model_name)
+        if hf_model_name in self._chat_template_generation_configs:
+            logger.info(f"Using cached generation config for {hf_model_name}")
+            return self._chat_template_generation_configs[hf_model_name]
+
+        try:
+            from transformers import GenerationConfig
+        except ImportError as e:
+            raise ImportError(
+                "transformers is required to load a Hugging Face generation config. "
+                "Install it or pass a prompt directly to completion()."
+            ) from e
+
+        try:
+            logger.info(
+                f"Registering generation config for {hf_model_name} "
+                f"from completion model {source_model_name}"
+            )
+            generation_config = GenerationConfig.from_pretrained(hf_model_name, **kwargs)
+        except Exception as e:
+            logger.warning(f"Could not load generation config for {hf_model_name}: {e}")
+            generation_config = None
+
+        self._chat_template_generation_configs[hf_model_name] = generation_config
+        return generation_config
+
+    def get_all_eos_text(
+        self,
+        tokenizer: Any,
+        generation_config: Optional[Any] = None,
+    ) -> List[str]:
+        eos_texts: List[str] = []
+        if generation_config is not None:
+            eos_ids = self._normalize_eos_ids(getattr(generation_config, "eos_token_id", None))
+            eos_texts.extend(
+                self._decode_token_id(tokenizer, eos_id)
+                for eos_id in eos_ids
+            )
+
+        eos_token = getattr(tokenizer, "eos_token", None)
+        if eos_token and eos_token not in eos_texts:
+            eos_texts.append(eos_token)
+
+        return eos_texts
+
+    def apply_chat_template(
+        self,
+        messages: List[Dict[str, Any]],
+        model_name: Optional[str] = None,
+        add_generation_prompt: Optional[bool] = None,
+        tokenize: bool = False,
+        **kwargs: Any,
+    ) -> str:
+        tokenizer = self.register_chat_template(model_name=model_name)
+        if add_generation_prompt is None:
+            prompt_without_generation = tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=False,
+                **kwargs,
+            )
+            token_ids = tokenizer(prompt_without_generation, add_special_tokens=False).get("input_ids", [])
+            add_generation_prompt = bool(token_ids and self._is_end_of_message_token(tokenizer, token_ids[-1]))
+            logger.info(
+                f"Auto add_generation_prompt={add_generation_prompt} "
+                f"for chat template model {self._normalize_chat_template_model_name(model_name or self.model_name)}"
+            )
+
+        return tokenizer.apply_chat_template(
+            messages,
+            tokenize=tokenize,
+            add_generation_prompt=add_generation_prompt,
+            **kwargs,
+        )
+
+    def _build_completion_prompt(
+        self,
+        prompt: Optional[Union[str, List[Dict[str, Any]]]] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        chat_template_model: Optional[str] = None,
+        **kwargs: Any,
+    ) -> Tuple[str, List[str]]:
+        if isinstance(prompt, list) and messages is None:
+            messages = prompt
+            prompt = None
+
+        if prompt:
+            if not isinstance(prompt, str):
+                raise ValueError("completion() prompt must be a string. Pass chat messages via messages=... or as the first argument.")
+            return prompt, []
+
+        if messages is None:
+            raise ValueError("Either prompt or messages must be provided for completion().")
+
+        if not self.system:
+            messages = convert_non_system_prompts(messages)
+
+        tokenizer = self.register_chat_template(model_name=chat_template_model)
+        generation_config = self.register_generation_config(model_name=chat_template_model)
+        completion_prompt = self.apply_chat_template(
+            messages,
+            model_name=chat_template_model,
+            **kwargs,
+        )
+        return completion_prompt, self.get_all_eos_text(tokenizer, generation_config)
+
+    @staticmethod
+    def _normalize_stop(stop: Optional[Union[str, List[str]]], eos_tokens: Optional[List[str]] = None) -> Optional[List[str]]:
+        stop_tokens: List[str] = []
+        if isinstance(stop, str):
+            stop_tokens.append(stop)
+        elif stop is not None:
+            stop_tokens.extend(stop)
+
+        for eos_token in eos_tokens or []:
+            if eos_token and eos_token not in stop_tokens:
+                stop_tokens.append(eos_token)
+
+        return stop_tokens or None
+
+    def completion(
+        self,
+        prompt: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        stop: Optional[Union[str, List[str]]] = None,
+        max_completion_token: int = 12000,
+        temperature: float = 0.6,
+        chat_template_model: Optional[str] = None,
+        add_generation_prompt: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
+        logprobs: int = 0,
+        **kwargs: Any,
+    ) -> Optional[Union[str, Dict[str, Any]]]:
+        max_completion_token = kwargs.pop("max_competion_token", max_completion_token)
+        stop = kwargs.pop("stop_token", stop)
+        logprobs = kwargs.pop("logprods", logprobs)
+        logprobs = max(0, min(int(logprobs or 0), 5))
+        template_kwargs = kwargs.pop("chat_template_kwargs", {})
+        if add_generation_prompt is not None:
+            template_kwargs["add_generation_prompt"] = add_generation_prompt
+        if reasoning_effort is not None:
+            template_kwargs["reasoning_effort"] = reasoning_effort
+        completion_prompt, eos_tokens = self._build_completion_prompt(
+            prompt=prompt,
+            messages=messages,
+            chat_template_model=chat_template_model,
+            **template_kwargs,
+        )
+
+        try:
+            start = time.time()
+            content = _openai_legacy_completion(
+                client=self.client,
+                include_logprobs=logprobs > 0,
+                model=self.model_name,
+                prompt=completion_prompt,
+                stop=self._normalize_stop(stop, eos_tokens=eos_tokens),
+                max_tokens=max_completion_token,
+                temperature=temperature,
+                **({"logprobs": logprobs} if logprobs > 0 else {}),
+                **kwargs,
+            )
+            end = time.time()
+            logger.info(f"Completion time of {self.model_name}: {end - start}s")
+            return content
+        except Exception as e:
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
+            return None
+
+    async def acompletion(
+        self,
+        prompt: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        stop: Optional[Union[str, List[str]]] = None,
+        max_completion_token: int = 1,
+        temperature: float = 0,
+        chat_template_model: Optional[str] = None,
+        add_generation_prompt: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
+        logprobs: int = 0,
+        **kwargs: Any,
+    ) -> Optional[Union[str, Dict[str, Any]]]:
+        max_completion_token = kwargs.pop("max_competion_token", max_completion_token)
+        stop = kwargs.pop("stop_token", stop)
+        logprobs = kwargs.pop("logprods", logprobs)
+        logprobs = max(0, min(int(logprobs or 0), 5))
+        template_kwargs = kwargs.pop("chat_template_kwargs", {})
+        if add_generation_prompt is not None:
+            template_kwargs["add_generation_prompt"] = add_generation_prompt
+        if reasoning_effort is not None:
+            template_kwargs["reasoning_effort"] = reasoning_effort
+        completion_prompt, eos_tokens = self._build_completion_prompt(
+            prompt=prompt,
+            messages=messages,
+            chat_template_model=chat_template_model,
+            **template_kwargs,
+        )
+
+        try:
+            start = time.time()
+            content = await _openai_legacy_completion_async(
+                client=self.async_client,
+                include_logprobs=logprobs > 0,
+                model=self.model_name,
+                prompt=completion_prompt,
+                stop=self._normalize_stop(stop, eos_tokens=eos_tokens),
+                max_tokens=max_completion_token,
+                temperature=temperature,
+                **({"logprobs": logprobs} if logprobs > 0 else {}),
+                **kwargs,
+            )
+            end = time.time()
+            logger.info(f"Completion time of {self.model_name}: {end - start}s")
+            return content
+        except Exception as e:
+            logger.error(f"Error with API Key ending {self._api_key[-5:]} : {e}")
+            return None
 
     def stream(self, messages: List[Dict[str, Union[str, List[Dict]]]], temperature: float = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[str]]:
         
@@ -724,6 +1048,8 @@ class OpenAIGPT(OpenAIWrapper):
         self.max_tokens = min(self.model_token, max_tokens)
         self.multimodal = True
         self.system = True
+        self._chat_template_tokenizers = {}
+        self._chat_template_generation_configs = {}
         
     def stream(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Generator[str, None, None]:
         messages = convert_to_multimodal_format(messages)

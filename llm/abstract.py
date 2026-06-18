@@ -1,3 +1,6 @@
+from typing import Any, Dict, List, Optional, Union
+
+
 class LLM:
     
     input_token: int = 0
@@ -15,6 +18,32 @@ class LLM:
         return self.__call__(message, **kwargs)
 
     async def ainvoke(self, message, **kwargs):
+        raise NotImplementedError()
+
+    def completion(
+        self,
+        prompt: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        stop: Optional[Union[str, List[str]]] = None,
+        max_completion_token: int = 1,
+        add_generation_prompt: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
+        logprobs: int = 0,
+        **kwargs,
+    ):
+        raise NotImplementedError()
+
+    async def acompletion(
+        self,
+        prompt: Optional[str] = None,
+        messages: Optional[List[Dict[str, Any]]] = None,
+        stop: Optional[Union[str, List[str]]] = None,
+        max_completion_token: int = 1,
+        add_generation_prompt: Optional[bool] = None,
+        reasoning_effort: Optional[str] = None,
+        logprobs: int = 0,
+        **kwargs,
+    ):
         raise NotImplementedError()
     
     def stream(self, message, **kwargs):
