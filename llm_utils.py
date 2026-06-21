@@ -1,14 +1,12 @@
 import re
 import json
 import ast
-import numpy as np
 
 from dotenv import load_dotenv
 load_dotenv()
 
 import os
 
-from PIL import Image
 import base64
 from io import BytesIO
 from typing import Dict, List, Union
@@ -20,6 +18,24 @@ logging.basicConfig(
     level=logging.INFO,
     format='[%(asctime)s] - [%(levelname)s] - %(message)s'
 )
+
+def _get_pil_image():
+    try:
+        from PIL import Image
+    except ImportError as exc:
+        raise ImportError(
+            "Pillow is required for image inputs. Install it with 'pip install Pillow'."
+        ) from exc
+    return Image
+
+
+def _get_numpy():
+    try:
+        import numpy as np
+    except ImportError:
+        return None
+    return np
+
 
 def pil_to_base64(image, format="JPEG"):
     """
@@ -33,6 +49,9 @@ def pil_to_base64(image, format="JPEG"):
     Returns:
         Base64 encoded string of the image
     """
+    Image = _get_pil_image()
+    np = _get_numpy()
+
     if isinstance(image, str):
         if os.path.exists(image):
             image = Image.open(image)
@@ -40,7 +59,7 @@ def pil_to_base64(image, format="JPEG"):
             logger.warning(f"Return the original string")
             return image
 
-    elif isinstance(image, np.ndarray):
+    elif np is not None and isinstance(image, np.ndarray):
         image = Image.fromarray(image)
 
     # Handle format compatibility issues
@@ -69,6 +88,9 @@ def pil_to_base64(image, format="JPEG"):
     return base64.b64encode(buffered.getvalue()).decode()
 
 def img_to_pil(image):
+    Image = _get_pil_image()
+    np = _get_numpy()
+
     if isinstance(image, str):
         image = Image.open(image)
     elif isinstance(image, np.ndarray):
@@ -248,9 +270,11 @@ def convert_to_multimodal_format(messages: List[Dict[str, Union[str, List[Dict]]
                         elif c['image'].startswith('data:image') or c['image'].startswith('https'):
                             image_url = c['image']
                             
-                    elif isinstance(c['image'], Image.Image):
-                        image_url = f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"
-                    
+                    else:
+                        Image = _get_pil_image()
+                        if isinstance(c['image'], Image.Image):
+                            image_url = f"data:image/jpeg;base64,{pil_to_base64(c['image'])}"
+
                     if image_url != "":        
                         new_content.append(
                             {
@@ -267,7 +291,6 @@ def convert_to_multimodal_format(messages: List[Dict[str, Union[str, List[Dict]]
         new_messages.append(item)
                
     return new_messages
-
 
 
 def convert_non_system_prompts(messages: List[Dict[str, Union[str, List[Dict]]]]) -> List[Dict[str, Union[str, List[Dict]]]]:

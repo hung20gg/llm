@@ -1,4 +1,3 @@
-from .llm.gemini import Gemini, RotateGemini
 from .llm.openai_compatible import OpenAIGPT, OpenAIWrapper, RotateOpenAIWrapper
 from .llm.vllm import vLLM
 from .llm.abstract import LLM
@@ -7,6 +6,19 @@ import os
 from typing import Tuple
 from dotenv import load_dotenv
 load_dotenv()
+
+
+def _get_gemini_classes():
+    from .llm.gemini import Gemini, RotateGemini
+
+    return Gemini, RotateGemini
+
+
+def __getattr__(name):
+    if name in {"Gemini", "RotateGemini"}:
+        Gemini, RotateGemini = _get_gemini_classes()
+        return {"Gemini": Gemini, "RotateGemini": RotateGemini}[name]
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def check_multi_model(model_name: str, **kwargs) -> bool:
@@ -52,6 +64,7 @@ def _get_llm_wrapper(model_name: str, **kwargs) -> LLM:
         
     elif  model_name.startswith('gemini'):
         logger.info(f"Using Gemini with model {model_name}")
+        Gemini, _ = _get_gemini_classes()
         return Gemini(model_name=model_name, multimodal=multimodel, **kwargs)
 
     logger.info(f"Using OpenAI Wrapper model: {model_name}")
@@ -137,6 +150,7 @@ def get_llm_wrapper(model_name: str, **kwargs) -> LLM:
         
         elif provider in ['gemini', 'google']:
             logger.info(f"Using Gemini with model {model}")
+            Gemini, _ = _get_gemini_classes()
             return Gemini(model_name=model, multimodal=multimodel, system=system_prompt, **kwargs)
 
         host, api_prefix = _get_host_api_prefix(provider, **kwargs)
@@ -172,6 +186,7 @@ def get_rotate_llm_wrapper(model_name: str, **kwargs) -> LLM:
     
     if 'gemini' in model_name or provider in ['google', 'gemini']:
         logger.info(f"Using Rotate Gemini with model {model_name}")
+        _, RotateGemini = _get_gemini_classes()
         return RotateGemini(model_name=model_name,  system=system_prompt, multimodal=multimodel, **kwargs)
 
     else:
