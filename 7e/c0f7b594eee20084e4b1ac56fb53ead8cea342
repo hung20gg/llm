@@ -1,0 +1,26 @@
+__init__.py
+  s_e3698242fe65a9::t_a3bd936c56897c 11-23,67,153,189
+llm_utils.py
+  s_e3698242fe65a9::t_56c36193be757b 22-39,52-54,62,91-93,273-277,406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "7ec0f7b594eee20084e4b1ac56fb53ead8cea342",
+  "prompts": {},
+  "humans": {
+    "h_5294c46e116715": {
+      "author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_e3698242fe65a9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ee95c-15f1-7a50-95e7-424dbee17a10",
+        "model": "gpt-5.5"
+      },
+      "human_author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  }
+}
