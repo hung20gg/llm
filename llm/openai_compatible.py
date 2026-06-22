@@ -71,7 +71,7 @@ def format_reasoning_content(
         return wrapped
 
     return f"{wrapped}{content}"
-def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Optional[Any]]:
+def _openai_chat_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Optional[Any]]:
     try:
         completion = client.chat.completions.create(
             stream=True,
@@ -92,7 +92,7 @@ def _openai_text_completion_stream(client: OpenAI, **kwargs: Any) -> Iterator[Op
         yield None
         
 
-async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: Any) -> AsyncIterator[Optional[Any]]:
+async def _openai_chat_completion_stream_async(client: AsyncOpenAI, **kwargs: Any) -> AsyncIterator[Optional[Any]]:
     try:
         completion = await client.chat.completions.create(
             stream=True,
@@ -113,14 +113,62 @@ async def _openai_text_completion_stream_async(client: AsyncOpenAI, **kwargs: An
         logger.error(f"Error in chat completion stream: {e}")
         
 
-def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Any:
-        
+def _format_chat_completion_logprobs(choice: Any) -> Dict[str, Any]:
+    response = choice.message
+    reasoning_content = _get_reasoning_content(response)
+    token_logprobs = []
+    logprob_content = getattr(getattr(choice, "logprobs", None), "content", None) or []
+
+    for item in logprob_content:
+        token = getattr(item, "token", "")
+        logprob = getattr(item, "logprob", None)
+        top_logprobs = getattr(item, "top_logprobs", None) or []
+
+        if not top_logprobs:
+            top_logprobs = [item]
+
+        token_logprobs.append({
+            "token": token,
+            "top_logprobs": [
+                {
+                    "token": getattr(top_logprob, "token", ""),
+                    "logprob": getattr(top_logprob, "logprob", None),
+                }
+                for top_logprob in top_logprobs
+            ],
+        })
+
+    return {
+        "content": format_reasoning_content(reasoning_content, response.content),
+        "logprobs": token_logprobs,
+    }
+
+
+def _normalize_chat_logprob_request(kwargs: Dict[str, Any]) -> bool:
+    logprobs = kwargs.get("logprobs", False)
+    include_logprobs = bool(logprobs)
+
+    if include_logprobs:
+        kwargs["logprobs"] = True
+        if "top_logprobs" not in kwargs and isinstance(logprobs, int) and not isinstance(logprobs, bool):
+            kwargs["top_logprobs"] = logprobs
+
+    return include_logprobs
+
+
+def _openai_chat_completion(client: OpenAI, **kwargs: Any) -> Any:
+    include_logprobs = _normalize_chat_logprob_request(kwargs)
+
     completion = client.chat.completions.create(
         **kwargs
     )
-    
-    response = completion.choices[0].message    
+
+    choice = completion.choices[0]
+    response = choice.message
     logger.info(completion.usage)
+
+    if include_logprobs:
+        return _format_chat_completion_logprobs(choice)
     
     # Return the parsed response if it exists
     if kwargs.get('response_format') is not None:
@@ -132,14 +180,19 @@ def _openai_text_completion(client: OpenAI, **kwargs: Any) -> Any:
     return format_reasoning_content(reasoning_content, response.content)
 
 
-async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> Any:
-        
+async def _openai_chat_completion_async(client: AsyncOpenAI, **kwargs: Any) -> Any:
+    include_logprobs = _normalize_chat_logprob_request(kwargs)
+
     completion = await client.chat.completions.create(
         **kwargs
     )
     
-    response = completion.choices[0].message    
+    choice = completion.choices[0]
+    response = choice.message
     logger.info(completion.usage)
+
+    if include_logprobs:
+        return _format_chat_completion_logprobs(choice)
     
     # Return the parsed response if it exists
     if kwargs.get('response_format') is not None:
@@ -156,7 +209,7 @@ async def _openai_text_completion_async(client: AsyncOpenAI, **kwargs: Any) -> A
     }
 
 
-def _format_legacy_completion_choice(choice: Any, include_logprobs: bool = False) -> Union[str, Dict[str, Any]]:
+def _format_text_completion_choice(choice: Any, include_logprobs: bool = False) -> Union[str, Dict[str, Any]]:
     content = choice.text
     if not include_logprobs:
         return content
@@ -184,19 +237,21 @@ def _format_legacy_completion_choice(choice: Any, include_logprobs: bool = False
 
 
 def _openai_legacy_completion(client: OpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
+    print(dict(kwargs))
     completion = client.completions.create(
         **kwargs
     )
+    print(completion)
     logger.info(completion.usage)
-    return _format_legacy_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
+    return _format_text_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
 
 
-async def _openai_legacy_completion_async(client: AsyncOpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
+async def _openai_text_completion_async(client: AsyncOpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
     completion = await client.completions.create(
         **kwargs
     )
     logger.info(completion.usage)
-    return _format_legacy_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
+    return _format_text_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
 
 
 def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
@@ -537,7 +592,7 @@ class OpenAIWrapper(LLM):
 
         try:
             start = time.time()
-            content = await _openai_legacy_completion_async(
+            content = await _openai_text_completion_async(
                 client=self.async_client,
                 include_logprobs=logprobs > 0,
                 model=self.model_name,
@@ -574,7 +629,7 @@ class OpenAIWrapper(LLM):
                     **kwargs
                 )
             else:
-                completion = _openai_text_completion_stream(
+                completion = _openai_chat_completion_stream(
                     client = self.client,
                     model = self.model_name,
                     messages = messages,
@@ -615,7 +670,7 @@ class OpenAIWrapper(LLM):
 
         try:
             is_thinking = False
-            async for chunk in _openai_text_completion_stream_async(
+            async for chunk in _openai_chat_completion_stream_async(
                         client = self.async_client,
                         model = self.model_name,
                         messages = messages,
@@ -662,7 +717,7 @@ class OpenAIWrapper(LLM):
         start = time.time()
         try:
 
-            content = _openai_text_completion(
+            content = _openai_chat_completion(
                 client = self.client,
                 model = self.model_name,
                 messages = messages,
@@ -707,7 +762,7 @@ class OpenAIWrapper(LLM):
         start = time.time()
         try:
 
-            content = await _openai_text_completion_async(
+            content = await _openai_chat_completion_async(
                 client = self.async_client,
                 model = self.model_name,
                 messages = messages,
@@ -731,7 +786,9 @@ class OpenAIWrapper(LLM):
         end = time.time()
         logger.info(f"Completion time of {self.model_name}: {end - start}s")
         
-        return content['content'] if isinstance(content, dict) and 'content' in content else content
+        if isinstance(content, dict) and "logprobs" not in content and "content" in content:
+            return content["content"]
+        return content
     
     def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
         if not self.system:
@@ -800,7 +857,7 @@ class OpenAIWrapper(LLM):
             messages = convert_to_multimodal_format(messages)    
 
         try:
-            completion = _openai_text_completion_stream(
+            completion = _openai_chat_completion_stream(
                 client = self.client,
                 model = self.model_name,
                 messages = messages,
@@ -920,7 +977,7 @@ class OpenAIWrapper(LLM):
             messages = convert_to_multimodal_format(messages)    
 
         try:
-            completion = _openai_text_completion_stream_async(
+            completion = _openai_chat_completion_stream_async(
                 client = self.async_client,
                 model = self.model_name,
                 messages = messages,
