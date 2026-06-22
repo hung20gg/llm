@@ -1,0 +1,22 @@
+README.md
+  s_d33ae51d5e2adb::t_5bd4d233fb8bd3 104,106-146
+  s_d33ae51d5e2adb::t_625ffa68fe36d4 270
+  s_d33ae51d5e2adb::t_56766b9618bedf 27,42,175,250
+  s_d33ae51d5e2adb::t_e998e1d4ba35fe 8,38-41,43-103,105
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "c0b2f07405e67b780530ce09e0914f5b8ea3e503",
+  "prompts": {},
+  "sessions": {
+    "s_d33ae51d5e2adb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eee41-31cd-75c3-818d-eb4375dbb24f",
+        "model": "gpt-5.5"
+      },
+      "human_author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  }
+}
