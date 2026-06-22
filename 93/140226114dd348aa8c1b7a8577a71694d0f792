@@ -1,0 +1,27 @@
+llm/openai_compatible.py
+  s_8c96871100b0af::t_5cf725b03d8944 789-791
+  s_8c96871100b0af::t_29d1ec8869540b 117-118,141-144
+  h_5294c46e116715 74,95,159,183,212,240,244,246,249,254,595,632,673,720,765,860,980
+  s_8c96871100b0af::t_263cafe28e305d 116,119-140,145-158,160-161,165-167,169-171,184-185,190-191,193-195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.9",
+  "base_commit_sha": "93140226114dd348aa8c1b7a8577a71694d0f792",
+  "prompts": {},
+  "humans": {
+    "h_5294c46e116715": {
+      "author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_8c96871100b0af": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019eee8e-60e7-75c2-b7b5-33a8e96ff271",
+        "model": "gpt-5.5"
+      },
+      "human_author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  }
+}
