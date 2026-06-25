@@ -103,6 +103,7 @@ Text completion response shape:
 - `llm.completion(...)` and `await llm.acompletion(...)` return a plain string by default.
 - If `logprobs > 0`, they return a dictionary with generated text plus per-token log probability details.
 - On provider errors, they return `None` and log the exception.
+- OpenAI-compatible completion APIs usually omit matched stop sequences from `choice.text`. The wrapper returns provider text as-is; callers that need local stop markers should scan and slice the returned text themselves.
 
 `logprobs` is clamped to the range `0..5` before the request is sent. For example:
 

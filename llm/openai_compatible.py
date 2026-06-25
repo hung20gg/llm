@@ -113,7 +113,25 @@ async def _openai_chat_completion_stream_async(client: AsyncOpenAI, **kwargs: An
         logger.error(f"Error in chat completion stream: {e}")
         
 
-def _format_chat_completion_logprobs(choice: Any) -> Dict[str, Any]:
+def _completion_payload(
+    content: Optional[str],
+    logprobs: Optional[List[Dict[str, Any]]] = None,
+    usage: Optional[Any] = None,
+    **extra: Any,
+) -> Dict[str, Any]:
+    payload = {
+        "content": content,
+        "logprobs": logprobs or [],
+        "completion_tokens": getattr(usage, "completion_tokens", None),
+    }
+    payload.update(extra)
+    return payload
+
+
+def _format_chat_completion_logprobs(
+    choice: Any,
+    usage: Optional[Any] = None,
+) -> Dict[str, Any]:
     response = choice.message
     reasoning_content = _get_reasoning_content(response)
     token_logprobs = []
@@ -138,10 +156,11 @@ def _format_chat_completion_logprobs(choice: Any) -> Dict[str, Any]:
             ],
         })
 
-    return {
-        "content": format_reasoning_content(reasoning_content, response.content),
-        "logprobs": token_logprobs,
-    }
+    return _completion_payload(
+        format_reasoning_content(reasoning_content, response.content),
+        logprobs=token_logprobs,
+        usage=usage,
+    )
 
 
 def _normalize_chat_logprob_request(kwargs: Dict[str, Any]) -> bool:
@@ -156,7 +175,10 @@ def _normalize_chat_logprob_request(kwargs: Dict[str, Any]) -> bool:
     return include_logprobs
 
 
-def _openai_chat_completion(client: OpenAI, **kwargs: Any) -> Any:
+def _openai_chat_completion(
+    client: OpenAI,
+    **kwargs: Any,
+) -> Any:
     include_logprobs = _normalize_chat_logprob_request(kwargs)
 
     completion = client.chat.completions.create(
@@ -168,7 +190,10 @@ def _openai_chat_completion(client: OpenAI, **kwargs: Any) -> Any:
     logger.info(completion.usage)
 
     if include_logprobs:
-        return _format_chat_completion_logprobs(choice)
+        return _format_chat_completion_logprobs(
+            choice,
+            usage=completion.usage,
+        )
     
     # Return the parsed response if it exists
     if kwargs.get('response_format') is not None:
@@ -180,7 +205,10 @@ def _openai_chat_completion(client: OpenAI, **kwargs: Any) -> Any:
     return format_reasoning_content(reasoning_content, response.content)
 
 
-async def _openai_chat_completion_async(client: AsyncOpenAI, **kwargs: Any) -> Any:
+async def _openai_chat_completion_async(
+    client: AsyncOpenAI,
+    **kwargs: Any,
+) -> Any:
     include_logprobs = _normalize_chat_logprob_request(kwargs)
 
     completion = await client.chat.completions.create(
@@ -192,7 +220,10 @@ async def _openai_chat_completion_async(client: AsyncOpenAI, **kwargs: Any) -> A
     logger.info(completion.usage)
 
     if include_logprobs:
-        return _format_chat_completion_logprobs(choice)
+        return _format_chat_completion_logprobs(
+            choice,
+            usage=completion.usage,
+        )
     
     # Return the parsed response if it exists
     if kwargs.get('response_format') is not None:
@@ -209,7 +240,11 @@ async def _openai_chat_completion_async(client: AsyncOpenAI, **kwargs: Any) -> A
     }
 
 
-def _format_text_completion_choice(choice: Any, include_logprobs: bool = False) -> Union[str, Dict[str, Any]]:
+def _format_text_completion_choice(
+    choice: Any,
+    include_logprobs: bool = False,
+    usage: Optional[Any] = None,
+) -> Union[str, Dict[str, Any]]:
     content = choice.text
     if not include_logprobs:
         return content
@@ -230,28 +265,43 @@ def _format_text_completion_choice(choice: Any, include_logprobs: bool = False) 
                 "text_offset": text_offsets[idx] if idx < len(text_offsets) else None,
             })
 
-    return {
-        "content": content,
-        "logprobs": token_logprobs,
-    }
+    return _completion_payload(
+        content,
+        logprobs=token_logprobs,
+        usage=usage,
+    )
 
 
-def _openai_legacy_completion(client: OpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
-    print(dict(kwargs))
+def _openai_legacy_completion(
+    client: OpenAI,
+    include_logprobs: bool = False,
+    **kwargs: Any,
+) -> Union[str, Dict[str, Any]]:
     completion = client.completions.create(
         **kwargs
     )
-    print(completion)
     logger.info(completion.usage)
-    return _format_text_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
+    return _format_text_completion_choice(
+        completion.choices[0],
+        include_logprobs=include_logprobs,
+        usage=completion.usage,
+    )
 
 
-async def _openai_text_completion_async(client: AsyncOpenAI, include_logprobs: bool = False, **kwargs: Any) -> Union[str, Dict[str, Any]]:
+async def _openai_text_completion_async(
+    client: AsyncOpenAI,
+    include_logprobs: bool = False,
+    **kwargs: Any,
+) -> Union[str, Dict[str, Any]]:
     completion = await client.completions.create(
         **kwargs
     )
     logger.info(completion.usage)
-    return _format_text_completion_choice(completion.choices[0], include_logprobs=include_logprobs)
+    return _format_text_completion_choice(
+        completion.choices[0],
+        include_logprobs=include_logprobs,
+        usage=completion.usage,
+    )
 
 
 def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
@@ -699,7 +749,14 @@ class OpenAIWrapper(LLM):
             return
                     
     
-    def __call__(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
+    def __call__(
+        self,
+        messages: List[Dict[str, Any]],
+        temperature: Optional[float] = 0.6,
+        response_format: Optional[Dict] = None,
+        tools: Optional[List[Any]] = None,
+        **kwargs: Any,
+    ) -> Optional[Union[str, Dict[str, Any]]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -743,7 +800,14 @@ class OpenAIWrapper(LLM):
         
         return content
     
-    async def ainvoke(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, response_format: Optional[Dict] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[str, Dict[str, Any]]]:
+    async def ainvoke(
+        self,
+        messages: List[Dict[str, Any]],
+        temperature: Optional[float] = 0.6,
+        response_format: Optional[Dict] = None,
+        tools: Optional[List[Any]] = None,
+        **kwargs: Any,
+    ) -> Optional[Union[str, Dict[str, Any]]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
