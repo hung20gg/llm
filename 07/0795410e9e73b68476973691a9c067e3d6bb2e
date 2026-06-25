@@ -1,0 +1,36 @@
+README.md
+  s_a8506a2a37339c::t_842c3c21944213 106
+llm/openai_compatible.py
+  s_15c24e83ed0c5e::t_e643d5b0a17f7d 752-759,803-810
+  s_15c24e83ed0c5e::t_832ed09b90601b 116-124,126-134,159-163,178-181,193-196,208-211,223-226,243-247,268-272,275-279,284-288,291-295,300-304
+  s_15c24e83ed0c5e::t_fb3432ab463240 125
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.13",
+  "base_commit_sha": "070795410e9e73b68476973691a9c067e3d6bb2e",
+  "prompts": {},
+  "humans": {
+    "h_5294c46e116715": {
+      "author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  },
+  "sessions": {
+    "s_15c24e83ed0c5e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019efac6-3c55-71f1-9b59-6e281fbb31df",
+        "model": "gpt-5.5"
+      },
+      "human_author": "hung20gg <quanghung20gg@gmail.com>"
+    },
+    "s_a8506a2a37339c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019ef59a-0a7f-7cd3-904f-bc34001513ff",
+        "model": "gpt-5.5"
+      },
+      "human_author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  }
+}
