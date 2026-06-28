@@ -274,10 +274,11 @@ async def _openai_chat_completion_async(
 def _format_text_completion_choice(
     choice: Any,
     include_logprobs: bool = False,
+    detail: bool = False,
     usage: Optional[Any] = None,
 ) -> Union[str, Dict[str, Any]]:
     content = choice.text
-    if not include_logprobs:
+    if not include_logprobs and not detail:
         return content
 
     lp = choice.logprobs
@@ -298,7 +299,7 @@ def _format_text_completion_choice(
 
     return _completion_payload(
         content,
-        logprobs=token_logprobs,
+        logprobs=token_logprobs if include_logprobs else None,
         usage=usage,
     )
 
@@ -306,6 +307,7 @@ def _format_text_completion_choice(
 def _openai_legacy_completion(
     client: OpenAI,
     include_logprobs: bool = False,
+    detail: bool = False,
     **kwargs: Any,
 ) -> Union[str, Dict[str, Any]]:
     completion = client.completions.create(
@@ -315,6 +317,7 @@ def _openai_legacy_completion(
     return _format_text_completion_choice(
         completion.choices[0],
         include_logprobs=include_logprobs,
+        detail=detail,
         usage=completion.usage,
     )
 
@@ -322,6 +325,7 @@ def _openai_legacy_completion(
 async def _openai_text_completion_async(
     client: AsyncOpenAI,
     include_logprobs: bool = False,
+    detail: bool = False,
     **kwargs: Any,
 ) -> Union[str, Dict[str, Any]]:
     completion = await client.completions.create(
@@ -331,6 +335,7 @@ async def _openai_text_completion_async(
     return _format_text_completion_choice(
         completion.choices[0],
         include_logprobs=include_logprobs,
+        detail=detail,
         usage=completion.usage,
     )
 
@@ -620,6 +625,7 @@ class OpenAIWrapper(LLM):
         add_generation_prompt: Optional[bool] = None,
         reasoning_effort: Optional[str] = None,
         logprobs: int = 0,
+        detail: bool = False,
         **kwargs: Any,
     ) -> Optional[Union[str, Dict[str, Any]]]:
         max_completion_token = kwargs.pop("max_competion_token", max_completion_token)
@@ -643,6 +649,7 @@ class OpenAIWrapper(LLM):
             content = _openai_legacy_completion(
                 client=self.client,
                 include_logprobs=logprobs > 0,
+                detail=detail,
                 model=self.model_name,
                 prompt=completion_prompt,
                 stop=self._normalize_stop(stop, eos_tokens=eos_tokens),
@@ -669,6 +676,7 @@ class OpenAIWrapper(LLM):
         add_generation_prompt: Optional[bool] = None,
         reasoning_effort: Optional[str] = None,
         logprobs: int = 0,
+        detail: bool = False,
         **kwargs: Any,
     ) -> Optional[Union[str, Dict[str, Any]]]:
         max_completion_token = kwargs.pop("max_competion_token", max_completion_token)
@@ -692,6 +700,7 @@ class OpenAIWrapper(LLM):
             content = await _openai_text_completion_async(
                 client=self.async_client,
                 include_logprobs=logprobs > 0,
+                detail=detail,
                 model=self.model_name,
                 prompt=completion_prompt,
                 stop=self._normalize_stop(stop, eos_tokens=eos_tokens),

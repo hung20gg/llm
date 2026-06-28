@@ -29,6 +29,7 @@ class LLM:
         add_generation_prompt: Optional[bool] = None,
         reasoning_effort: Optional[str] = None,
         logprobs: int = 0,
+        detail: bool = False,
         **kwargs,
     ):
         raise NotImplementedError()
@@ -42,6 +43,7 @@ class LLM:
         add_generation_prompt: Optional[bool] = None,
         reasoning_effort: Optional[str] = None,
         logprobs: int = 0,
+        detail: bool = False,
         **kwargs,
     ):
         raise NotImplementedError()
