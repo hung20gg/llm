@@ -114,16 +114,17 @@ async def _openai_chat_completion_stream_async(client: AsyncOpenAI, **kwargs: An
         
 
 def _completion_payload(
-    content: Optional[str],
+    content: Any,
     logprobs: Optional[List[Dict[str, Any]]] = None,
     usage: Optional[Any] = None,
     **extra: Any,
 ) -> Dict[str, Any]:
-    payload = {
-        "content": content,
-        "logprobs": logprobs or [],
-        "completion_tokens": getattr(usage, "completion_tokens", None),
-    }
+    payload = {"content": content}
+    if logprobs is not None:
+        payload["logprobs"] = logprobs
+    if usage is not None:
+        payload["completion_tokens"] = getattr(usage, "completion_tokens", None)
+        payload["prompt_tokens"] = getattr(usage, "prompt_tokens", None)
     payload.update(extra)
     return payload
 
@@ -177,6 +178,7 @@ def _normalize_chat_logprob_request(kwargs: Dict[str, Any]) -> bool:
 
 def _openai_chat_completion(
     client: OpenAI,
+    detail: bool = False,
     **kwargs: Any,
 ) -> Any:
     include_logprobs = _normalize_chat_logprob_request(kwargs)
@@ -197,16 +199,31 @@ def _openai_chat_completion(
     
     # Return the parsed response if it exists
     if kwargs.get('response_format') is not None:
-        if response.parsed:
+        content = response.parsed if response.parsed is not None else response.refusal
+        if detail:
+            payload = _completion_payload(
+                content,
+                usage=completion.usage,
+            )
+            return payload
+        if response.parsed is not None:
             return response.parsed
         elif response.refusal:
             return response.refusal
     reasoning_content = _get_reasoning_content(response)
-    return format_reasoning_content(reasoning_content, response.content)
+    content = format_reasoning_content(reasoning_content, response.content)
+    if detail:
+        payload = _completion_payload(
+            content,
+            usage=completion.usage,
+        )
+        return payload
+    return content
 
 
 async def _openai_chat_completion_async(
     client: AsyncOpenAI,
+    detail: bool = False,
     **kwargs: Any,
 ) -> Any:
     include_logprobs = _normalize_chat_logprob_request(kwargs)
@@ -220,20 +237,34 @@ async def _openai_chat_completion_async(
     logger.info(completion.usage)
 
     if include_logprobs:
-        return _format_chat_completion_logprobs(
+        payload = _format_chat_completion_logprobs(
             choice,
             usage=completion.usage,
         )
+        return payload
     
     # Return the parsed response if it exists
     if kwargs.get('response_format') is not None:
-        if response.parsed:
+        content = response.parsed if response.parsed is not None else response.refusal
+        if detail:
+            payload = _completion_payload(
+                content,
+                usage=completion.usage,
+            )
+            return payload
+        if response.parsed is not None:
             return response.parsed
         elif response.refusal:
             return response.refusal
 
     content = response.content
     reasoning_content = _get_reasoning_content(response)    
+    if detail:
+        payload = _completion_payload(
+            format_reasoning_content(reasoning_content, content),
+            usage=completion.usage,
+        )
+        return payload
     return {
         "content": format_reasoning_content(reasoning_content, content),
         "reasoning_content": reasoning_content
@@ -304,7 +335,7 @@ async def _openai_text_completion_async(
     )
 
 
-def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
+def _openai_tool_calling(client: OpenAI, detail: bool = False, **kwargs: Any) -> Dict[str, Any]:
     try:
         completion = client.chat.completions.create(
             **kwargs
@@ -323,12 +354,20 @@ def _openai_tool_calling(client: OpenAI, **kwargs: Any) -> Dict[str, Any]:
     content = response.content
     reasoning_content = _get_reasoning_content(response)    
 
+    if detail:
+        payload = _completion_payload(
+            format_reasoning_content(reasoning_content, content),
+            usage=completion.usage,
+        )
+        payload["tool_calls"] = tool_calls
+        return payload
+
     return {
         "content": format_reasoning_content(reasoning_content, content),
         "tool_calls": tool_calls
     }
     
-async def _openai_tool_calling_async(client: AsyncOpenAI, **kwargs: Any) -> Dict[str, Any]:
+async def _openai_tool_calling_async(client: AsyncOpenAI, detail: bool = False, **kwargs: Any) -> Dict[str, Any]:
     try:
         completion = await client.chat.completions.create(
             **kwargs
@@ -346,6 +385,14 @@ async def _openai_tool_calling_async(client: AsyncOpenAI, **kwargs: Any) -> Dict
     
     content = response.content
     reasoning_content = _get_reasoning_content(response)
+
+    if detail:
+        payload = _completion_payload(
+            format_reasoning_content(reasoning_content, content),
+            usage=completion.usage,
+        )
+        payload["tool_calls"] = tool_calls
+        return payload
 
     return {
         "content": format_reasoning_content(reasoning_content, content),
@@ -755,6 +802,7 @@ class OpenAIWrapper(LLM):
         temperature: Optional[float] = 0.6,
         response_format: Optional[Dict] = None,
         tools: Optional[List[Any]] = None,
+        detail: bool = False,
         **kwargs: Any,
     ) -> Optional[Union[str, Dict[str, Any]]]:
         
@@ -768,6 +816,7 @@ class OpenAIWrapper(LLM):
                 messages = messages,
                 temperature=temperature,
                 tools = tools,
+                detail=detail,
                 **kwargs
             )
 
@@ -780,6 +829,7 @@ class OpenAIWrapper(LLM):
                 messages = messages,
                 temperature=temperature,
                 response_format = response_format,
+                detail=detail,
                 **kwargs
             )
                 
@@ -788,7 +838,14 @@ class OpenAIWrapper(LLM):
             if not self.multimodal:
                 logger.warning("Switching to multimodal")
                 self.multimodal = True
-                return self(messages, temperature, response_format, tools, **kwargs)
+                return self(
+                    messages=messages,
+                    temperature=temperature,
+                    response_format=response_format,
+                    tools=tools,
+                    detail=detail,
+                    **kwargs,
+                )
 
             else:
                 # Handle edge cases
@@ -799,6 +856,24 @@ class OpenAIWrapper(LLM):
         logger.info(f"Completion time of {self.model_name}: {end - start}s")
         
         return content
+
+    def invoke(
+        self,
+        messages: List[Dict[str, Any]],
+        temperature: Optional[float] = 0.6,
+        response_format: Optional[Dict] = None,
+        tools: Optional[List[Any]] = None,
+        detail: bool = False,
+        **kwargs: Any,
+    ) -> Optional[Union[str, Dict[str, Any]]]:
+        return self.__call__(
+            messages=messages,
+            temperature=temperature,
+            response_format=response_format,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
     
     async def ainvoke(
         self,
@@ -806,6 +881,7 @@ class OpenAIWrapper(LLM):
         temperature: Optional[float] = 0.6,
         response_format: Optional[Dict] = None,
         tools: Optional[List[Any]] = None,
+        detail: bool = False,
         **kwargs: Any,
     ) -> Optional[Union[str, Dict[str, Any]]]:
         
@@ -820,6 +896,7 @@ class OpenAIWrapper(LLM):
                 messages = messages,
                 temperature=temperature,
                 tools = tools,
+                detail=detail,
                 **kwargs
             )
 
@@ -832,6 +909,7 @@ class OpenAIWrapper(LLM):
                 messages = messages,
                 temperature=temperature,
                 response_format = response_format,
+                detail=detail,
                 **kwargs
             )
                 
@@ -840,7 +918,14 @@ class OpenAIWrapper(LLM):
             if not self.multimodal:
                 logger.warning("Switching to multimodal")
                 self.multimodal = True
-                return self(messages, temperature, response_format, tools, **kwargs)
+                return await self.ainvoke(
+                    messages=messages,
+                    temperature=temperature,
+                    response_format=response_format,
+                    tools=tools,
+                    detail=detail,
+                    **kwargs,
+                )
 
             else:
                 # Handle edge cases
@@ -850,11 +935,11 @@ class OpenAIWrapper(LLM):
         end = time.time()
         logger.info(f"Completion time of {self.model_name}: {end - start}s")
         
-        if isinstance(content, dict) and "logprobs" not in content and "content" in content:
+        if not detail and isinstance(content, dict) and "logprobs" not in content and "content" in content:
             return content["content"]
         return content
-    
-    def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+
+    def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Dict[str, Any]]:
         if not self.system:
             messages = convert_non_system_prompts(messages)
 
@@ -869,6 +954,7 @@ class OpenAIWrapper(LLM):
                 messages = messages,
                 temperature=temperature,
                 tools = tools,
+                detail=detail,
                 **kwargs
             )
             
@@ -882,7 +968,7 @@ class OpenAIWrapper(LLM):
             logger.error(f"Error with API Key ending {str(self._api_key)[-5:]} : {e}")
             return None
         
-    async def tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    async def tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Dict[str, Any]]:
         
         if not self.system:
             messages = convert_non_system_prompts(messages)
@@ -898,6 +984,7 @@ class OpenAIWrapper(LLM):
                 messages = messages,
                 temperature=temperature,
                 tools = tools,
+                detail=detail,
                 **kwargs
             )
             
@@ -910,6 +997,15 @@ class OpenAIWrapper(LLM):
             api_key_suffix = getattr(self, '_OpenAIWrapper_api_key', getattr(self, '_ChatGPT_api_key', 'unknown'))
             logger.error(f"Error with API Key ending {str(api_key_suffix)[-5:]} : {e}")
             return None
+
+    async def async_tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        return await self.tool_calling_async(
+            messages=messages,
+            temperature=temperature,
+            tools=tools,
+            detail=detail,
+            **kwargs
+        )
 
 
     def stream_tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Iterator[Optional[Dict[str, Any]]]:
@@ -1186,30 +1282,75 @@ class OpenAIGPT(OpenAIWrapper):
             yield chunk
             
 
-    def __call__(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+    def __call__(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None
-        return super().__call__(messages, temperature, response_format, tools, **kwargs)
+        return super().__call__(
+            messages=messages,
+            temperature=temperature,
+            response_format=response_format,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
+
+    def invoke(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+        return self.__call__(
+            messages=messages,
+            temperature=temperature,
+            response_format=response_format,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
             
-    async def ainvoke(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
+    async def ainvoke(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.4, response_format: Optional[Any] = None, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Union[Any, List[Any]]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None
-        return await super().ainvoke(messages, temperature, response_format, tools, **kwargs)
+        return await super().ainvoke(
+            messages=messages,
+            temperature=temperature,
+            response_format=response_format,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
             
 
-    def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    def tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Dict[str, Any]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None  
-        return super().tool_calling(messages, temperature, tools, **kwargs)
+        return super().tool_calling(
+            messages=messages,
+            temperature=temperature,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
     
-    async def tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any) -> Optional[Dict[str, Any]]:
+    async def tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Dict[str, Any]]:
         
         if 'gpt-5' in self.model_name:
             temperature = None 
-        return await super().tool_calling_async(messages, temperature, tools, **kwargs)
+        return await super().tool_calling_async(
+            messages=messages,
+            temperature=temperature,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
+
+    async def async_tool_calling(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, detail: bool = False, **kwargs: Any) -> Optional[Dict[str, Any]]:
+        return await self.tool_calling_async(
+            messages=messages,
+            temperature=temperature,
+            tools=tools,
+            detail=detail,
+            **kwargs,
+        )
     
     async def stream_tool_calling_async(self, messages: List[Dict[str, Any]], temperature: Optional[float] = 0.6, tools: Optional[List[Any]] = None, **kwargs: Any):
         
