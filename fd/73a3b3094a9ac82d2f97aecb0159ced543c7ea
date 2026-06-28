@@ -1,0 +1,25 @@
+README.md
+  s_184f2b77340cc8::t_969b196535f0ee 104
+llm/abstract.py
+  s_184f2b77340cc8::t_f294007203082d 32,46
+llm/openai_compatible.py
+  s_184f2b77340cc8::t_638e4ac31b8b42 628,652,679,703
+  s_184f2b77340cc8::t_7921eb686b59ae 277,281,310,320,328,338
+  s_184f2b77340cc8::t_b92c1da02ef37a 302
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.3",
+  "base_commit_sha": "fd73a3b3094a9ac82d2f97aecb0159ced543c7ea",
+  "prompts": {},
+  "sessions": {
+    "s_184f2b77340cc8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019f0e25-cd95-7181-befc-38878e72811b",
+        "model": "gpt-5.4-mini"
+      },
+      "human_author": "hung20gg <quanghung20gg@gmail.com>"
+    }
+  }
+}
